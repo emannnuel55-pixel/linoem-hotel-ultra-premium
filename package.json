@@ -5,10 +5,10 @@
   "main": "src/backend/server.js",
   "type": "module",
   "scripts": {
-    "start": "node src/backend/server.js",
+    "start": "npx prisma generate && npx prisma db push --accept-data-loss && node prisma/seed.js && node src/backend/server.js",
     "dev:backend": "node --watch src/backend/server.js",
     "dev:frontend": "cd src/frontend && npm run dev",
-    "build": "npx prisma generate && npx prisma db push --accept-data-loss && node prisma/seed.js && cd src/frontend && npm install && npm run build",
+    "build": "cd src/frontend && npm install && npm run build",
     "postbuild": "echo 'Build done'",
     "db:push": "prisma db push",
     "db:seed": "node prisma/seed.js",
