@@ -1,11 +1,10 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import ClientPortal from './views/ClientPortal';
-import EmployeePortal from './views/EmployeePortal';
 import { Sun, Moon } from '@phosphor-icons/react';
 
 function App() {
-  const [theme, setTheme] = useState('dark'); // 'dark' or 'light'
+  const [theme, setTheme] = useState('dark');
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -28,11 +27,7 @@ function App() {
       </div>
 
       <Routes>
-        {/* Portal de Clientes */}
         <Route path="/" element={<ClientPortal />} />
-        
-        {/* Portal de Empleados */}
-        <Route path="/admin/*" element={<EmployeePortal />} />
       </Routes>
     </Router>
   );

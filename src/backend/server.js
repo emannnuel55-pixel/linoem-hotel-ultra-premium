@@ -57,6 +57,11 @@ io.on('connection', (socket) => {
 // Serve frontend build in production
 const frontendBuildPath = path.join(__dirname, '../frontend/dist');
 app.use(express.static(frontendBuildPath));
+
+app.get('/admin*', (req, res) => {
+  res.sendFile(path.join(frontendBuildPath, 'admin/index.html'));
+});
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(frontendBuildPath, 'index.html'));
 });
