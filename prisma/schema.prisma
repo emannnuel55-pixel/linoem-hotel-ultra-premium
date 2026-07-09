@@ -1,0 +1,121 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String    @id @default(uuid())
+  email           String    @unique
+  passwordHash    String
+  firstName       String
+  lastName        String
+  role            String    @default("Cliente") // Cliente, Superadmin, Recepcion, etc.
+  departmentKey   String?   // null for Cliente, 'direccion', 'limpieza', etc.
+  status          String    @default("Activo") // Activo, Pendiente, Inactivo
+  otpSecret       String?
+  otpExpiresAt    DateTime?
+  documentUrl     String?
+  isVerified      Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+
+  bookings        Booking[]
+  auditLogs       AuditLog[]
+  messagesSent    ChatMessage[] @relation("MessagesSent")
+  messagesRecv    ChatMessage[] @relation("MessagesReceived")
+  housekeeping    HousekeepingTask[] @relation("AssignedHousekeeper")
+}
+
+model Room {
+  id              String    @id @default(uuid())
+  roomNumber      String    @unique
+  floor           String
+  roomType        String    @default("Estandar")
+  capacity        Int       @default(2)
+  price           Float     @default(1500)
+  description     String
+  amenities       String    // JSON array of strings
+  images          String    // JSON array of strings
+  status          String    @default("Disponible") // Disponible, Ocupada, Mantenimiento, Limpieza
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  bookings        Booking[]
+  maintenance     MaintenanceTicket[]
+  housekeeping    HousekeepingTask[]
+}
+
+model Booking {
+  id              String    @id @default(uuid())
+  user            User      @relation(fields: [userId], references: [id])
+  userId          String
+  room            Room      @relation(fields: [roomId], references: [id])
+  roomId          String
+  
+  checkIn         DateTime
+  checkOut        DateTime
+  totalAmount     Float
+  status          String    @default("Pendiente") // Pendiente, Confirmado, Cancelado
+  
+  paymentId       String?
+  paymentStatus   String?
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model MaintenanceTicket {
+  id              String    @id @default(uuid())
+  room            Room      @relation(fields: [roomId], references: [id])
+  roomId          String
+  
+  description     String
+  priority        String    @default("Normal") // Baja, Normal, Alta
+  status          String    @default("Pendiente") // Pendiente, En_Proceso, Terminado
+  assignedTo      String?
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model HousekeepingTask {
+  id              String    @id @default(uuid())
+  room            Room      @relation(fields: [roomId], references: [id])
+  roomId          String
+  
+  assignedUser    User?     @relation("AssignedHousekeeper", fields: [assignedTo], references: [id])
+  assignedTo      String?
+  
+  status          String    @default("Pendiente") // Pendiente, Limpiando, Terminado
+  notes           String?
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model ChatMessage {
+  id              String    @id @default(uuid())
+  sender          User      @relation("MessagesSent", fields: [senderId], references: [id])
+  senderId        String
+  receiver        User      @relation("MessagesReceived", fields: [receiverId], references: [id])
+  receiverId      String
+  
+  message         String
+  createdAt       DateTime  @default(now())
+}
+
+model AuditLog {
+  id              String    @id @default(uuid())
+  user            User?     @relation(fields: [userId], references: [id])
+  userId          String?
+  
+  action          String
+  details         String
+  ipAddress       String?
+  
+  createdAt       DateTime  @default(now())
+}
