@@ -2,10 +2,21 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import prisma from '../db.js';
+import nodemailer from 'nodemailer';
 
 const router = express.Router();
 
-// Registro de Cliente con OTP simulado
+// Configuración de NodeMailer
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST || 'smtp.ethereal.email',
+  port: parseInt(process.env.SMTP_PORT) || 587,
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS
+  }
+});
+
+// Registro de Cliente con OTP
 router.post('/register', async (req, res) => {
   try {
     const { firstName, lastName, email, password } = req.body;
@@ -31,8 +42,28 @@ router.post('/register', async (req, res) => {
       }
     });
 
-    // In a real app, send OTP via email here using Nodemailer/Resend
-    console.log(`[EMAIL MOCK] Enviando PIN a ${email}: ${otp}`);
+    try {
+      // Enviar correo real
+      const info = await transporter.sendMail({
+        from: process.env.SMTP_FROM || '"LINOEM Ultra Premium" <no-reply@hotelpremium.com>',
+        to: email,
+        subject: "🔒 Tu Código de Verificación LINOEM",
+        html: `
+          <div style="font-family: sans-serif; text-align: center; color: #333;">
+            <h2 style="color: #d4af37;">LINOEM HOTEL CONTROL</h2>
+            <p>Hola <b>${firstName}</b>,</p>
+            <p>Tu código de seguridad de 6 dígitos es:</p>
+            <h1 style="background: #f1f5f9; padding: 15px; letter-spacing: 5px;">${otp}</h1>
+            <p>Este código expira en 10 minutos.</p>
+          </div>
+        `,
+      });
+      console.log(`[EMAIL ENVIADO] MessageId: ${info.messageId}`);
+    } catch (mailError) {
+      console.error('[EMAIL ERROR]', mailError);
+      // Si falla el correo (por falta de credenciales), mostramos el PIN en consola para debug
+      console.log(`[FALLBACK - MOCK PIN] Enviando PIN a ${email}: ${otp}`);
+    }
 
     res.status(201).json({ message: 'Registro exitoso. Revisa tu correo para el PIN de verificación.' });
   } catch (error) {
