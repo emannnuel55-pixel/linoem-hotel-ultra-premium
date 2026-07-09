@@ -466,7 +466,7 @@ const EmployeePortal = () => {
                   <select>
                     <option>Todos los clientes (Newsletter)</option>
                     <option>Huéspedes Frecuentes (VIP)</option>
-                    <option>Clientes inactivos (Hace > 6 meses)</option>
+                    <option>Clientes inactivos (Hace &gt; 6 meses)</option>
                   </select>
                   <label style={{ marginTop: '15px' }}>Mensaje Promocional HTML</label>
                   <textarea placeholder="<h1>Oferta especial...</h1>" style={{ height: '150px' }}></textarea>
@@ -507,7 +507,7 @@ const EmployeePortal = () => {
                   <tr>
                     <td style={{ padding: '10px', borderBottom: '1px solid var(--glass-bg)' }}>Hoy 10:15 AM</td>
                     <td style={{ padding: '10px', borderBottom: '1px solid var(--glass-bg)' }}>admin@hotel.com (Superadmin)</td>
-                    <td style={{ padding: '10px', borderBottom: '1px solid var(--glass-bg)' }}>ROOM: UPDATE_STATUS (105 -> Limpieza)</td>
+                    <td style={{ padding: '10px', borderBottom: '1px solid var(--glass-bg)' }}>ROOM: UPDATE_STATUS (105 -&gt; Limpieza)</td>
                     <td style={{ padding: '10px', borderBottom: '1px solid var(--glass-bg)' }}>10.0.0.52</td>
                   </tr>
                   <tr>
