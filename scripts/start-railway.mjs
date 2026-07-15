@@ -1,0 +1,1 @@
+import {spawnSync} from "node:child_process";const run=(c,a)=>{const r=spawnSync(c,a,{stdio:"inherit",shell:process.platform==="win32"});if(r.status!==0)process.exit(r.status??1)};run("npx",["prisma","db","push"]);run("npx",["next","start","-H","0.0.0.0","-p",process.env.PORT||"3000"]);

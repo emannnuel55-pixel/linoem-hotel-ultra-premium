@@ -1,89 +1,39 @@
-# LINOEM Hotel Control - Ultra Premium Platform
+# LINOEM Hotel Seguro
 
-Bienvenido a la plataforma LINOEM Hotel Control. Este es un proyecto Monolítico con Backend en Express/Node.js, Frontend en React (Vite) y Base de Datos PostgreSQL gestionada con Prisma.
+Plataforma hotelera en Next.js 16, PostgreSQL y Prisma. Incluye registro de huéspedes, verificación real por correo, inicio de sesión con contraseña cifrada Argon2id, Google OAuth, recuperación de contraseña con enlace de un solo uso, sesiones HTTP-only y portal de reservaciones.
 
-## 🌟 Arquitectura y Tecnologías
-- **Frontend:** React, Vite, React Router, CSS Vanilla (Temas Blanco/Dorado y Negro/Dorado), Phosphor Icons, Socket.IO Client.
-- **Backend:** Node.js, Express, Socket.IO, JWT, bcryptjs.
-- **Base de Datos:** PostgreSQL con Prisma ORM.
+## Instalación local
 
-## 🚀 Comandos de Instalación (Local)
+1. Instala Node.js 22 y PostgreSQL.
+2. Copia `.env.example` como `.env` y completa las variables.
+3. Ejecuta `npm install`, `npm run db:push` y `npm run dev`.
 
-1. **Instalar dependencias del Backend:**
-   En la raíz del proyecto, ejecuta:
-   ```bash
-   npm install
-   ```
+## Configuración de correo
 
-2. **Instalar dependencias del Frontend:**
-   ```bash
-   cd src/frontend
-   npm install
-   cd ../..
-   ```
+Para Gmail activa la verificación en dos pasos y crea una **contraseña de aplicación**. Colócala en `SMTP_PASSWORD`. No uses ni publiques tu contraseña normal.
 
-3. **Configurar Variables de Entorno (.env):**
-   Copia el archivo de ejemplo y configura la conexión a PostgreSQL:
-   ```bash
-   cp .env.example .env
-   ```
-   Abre el archivo `.env` y asegúrate de configurar tu `DATABASE_URL` (Debe ser una URI válida de PostgreSQL).
+## Configuración de Google
 
-4. **Migrar la Base de Datos:**
-   Sincroniza el esquema de Prisma con PostgreSQL:
-   ```bash
-   npm run db:push
-   ```
+En Google Cloud Console crea credenciales OAuth tipo Web. Registra:
 
-5. **Crear Datos Demo (Seed):**
-   Genera los usuarios predeterminados (superadmin, empleados, cliente) y las habitaciones:
-   ```bash
-   npm run db:seed
-   ```
+- Local: `http://localhost:3000/api/auth/google/callback`
+- Producción: `https://TU-DOMINIO/api/auth/google/callback`
 
-## 💻 Comandos para Ejecutar Localmente
+Agrega `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET` en Railway.
 
-Necesitas dos terminales para correr en modo desarrollo (Hot Reload):
+## Railway
 
-**Terminal 1 (Backend con WebSockets):**
-```bash
-npm run dev:backend
-```
+Crea PostgreSQL y conecta `DATABASE_URL`. Agrega `APP_URL`, las cinco variables SMTP y las dos variables Google. El arranque sincroniza el esquema de una base nueva y abre el puerto asignado por Railway.
 
-**Terminal 2 (Frontend React):**
-```bash
-npm run dev:frontend
-```
+## Seguridad incluida
 
-## 🏗️ Comandos para Build y Deploy a Producción
+- Correo único y verificado antes del primer acceso.
+- Contraseñas Argon2id y política mínima robusta.
+- Tokens almacenados solamente como hash, con vencimiento y un solo uso.
+- Recuperación invalida sesiones anteriores.
+- Cookies seguras, HTTP-only y SameSite.
+- OAuth con `state` anti-CSRF y correo verificado por Google.
+- Respuestas neutras en recuperación para evitar revelar cuentas.
+- Limitación básica de intentos y cabeceras HTTP defensivas.
 
-La aplicación está diseñada como un monolito para facilitar su despliegue en un solo servicio (ej. Railway), sirviendo el React compilado directamente desde Express.
-
-1. **Construir el Frontend (Build):**
-   ```bash
-   npm run build
-   ```
-
-2. **Despliegue a Railway:**
-   - Asegúrate de tener tu repositorio en GitHub.
-   - En Railway, crea un nuevo **"Project from GitHub Repo"** y selecciona tu repositorio.
-   - En Railway, añade un servicio **PostgreSQL** y copia la variable `DATABASE_URL` a las variables de entorno de tu aplicación.
-   - Añade el resto de variables (`JWT_SECRET`, `PORT`, etc.).
-   - Railway detectará automáticamente el archivo `package.json`, ejecutará `npm run build` y luego el comando de inicio `npm start`.
-
-## 👥 Usuarios Demo Creados por el Seed
-
-Todos los usuarios tienen la contraseña por defecto: `Hotel#2026!` a excepción de los que se especifican:
-- **Super Admin / Dirección:** `admin@hotel.com` (Contraseña: `Admin#2026!Hotel`)
-- **Recepción:** `recepcion@hotel.com`
-- **Limpieza:** `limpieza@hotel.com`
-- **Mantenimiento:** `mantenimiento@hotel.com`
-- **Gerencia:** `gerencia@hotel.com`
-- **Finanzas:** `finanzas@hotel.com`
-- **Cliente:** `cliente@hotel.com` (Contraseña: `Cliente123!`)
-
-## 🛡️ Recomendaciones Finales de Producción
-1. **JWT Secret:** Cambia el `JWT_SECRET` en tu `.env` de producción por una cadena fuerte y aleatoria.
-2. **Correos OTP:** Configura un SMTP real (como Resend o SendGrid) en `src/backend/routes/auth.js` para enviar el PIN del cliente al correo en lugar de imprimirlo en la consola.
-3. **Imágenes y Archivos:** Actualmente el código asume carga local. En producción, deberás integrar AWS S3, Cloudinary o usar volúmenes montados en Railway para que las fotos de identificaciones persistan tras cada reinicio del contenedor.
-4. **Stripe:** Para activar cobros reales, reemplaza `STRIPE_SECRET_KEY` con tus claves reales.
+Para producción con varias réplicas conviene sustituir el limitador en memoria por Redis y agregar CAPTCHA tras intentos fallidos.

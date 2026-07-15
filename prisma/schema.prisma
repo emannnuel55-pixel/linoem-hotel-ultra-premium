@@ -1,121 +1,95 @@
 generator client {
-  provider = "prisma-client-js"
+  provider = "prisma-client"
+  output   = "../generated/prisma"
 }
-
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
-
+enum Role {
+  GUEST
+  RECEPTION
+  MANAGER
+  ADMIN
+}
+enum RoomStatus {
+  AVAILABLE
+  OCCUPIED
+  CLEANING
+  MAINTENANCE
+}
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CHECKED_IN
+  CHECKED_OUT
+  CANCELLED
+}
 model User {
-  id              String    @id @default(uuid())
-  email           String    @unique
-  passwordHash    String
-  firstName       String
-  lastName        String
-  role            String    @default("Cliente") // Cliente, Superadmin, Recepcion, etc.
-  departmentKey   String?   // null for Cliente, 'direccion', 'limpieza', etc.
-  status          String    @default("Activo") // Activo, Pendiente, Inactivo
-  otpSecret       String?
-  otpExpiresAt    DateTime?
-  documentUrl     String?
-  isVerified      Boolean   @default(false)
-  createdAt       DateTime  @default(now())
-
+  id              String      @id @default(cuid())
+  name            String
+  email           String      @unique
+  passwordHash    String?
+  googleId        String?     @unique
+  emailVerifiedAt DateTime?
+  role            Role        @default(GUEST)
+  active          Boolean     @default(true)
+  sessions        Session[]
+  tokens          AuthToken[]
   bookings        Booking[]
-  auditLogs       AuditLog[]
-  messagesSent    ChatMessage[] @relation("MessagesSent")
-  messagesRecv    ChatMessage[] @relation("MessagesReceived")
-  housekeeping    HousekeepingTask[] @relation("AssignedHousekeeper")
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
 }
-
+model Session {
+  id         String   @id @default(cuid())
+  tokenHash  String   @unique
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  @@index([userId, expiresAt])
+}
+model AuthToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  purpose   String
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  @@index([userId, purpose, expiresAt])
+}
 model Room {
-  id              String    @id @default(uuid())
-  roomNumber      String    @unique
-  floor           String
-  roomType        String    @default("Estandar")
-  capacity        Int       @default(2)
-  price           Float     @default(1500)
-  description     String
-  amenities       String    // JSON array of strings
-  images          String    // JSON array of strings
-  status          String    @default("Disponible") // Disponible, Ocupada, Mantenimiento, Limpieza
-
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  bookings        Booking[]
-  maintenance     MaintenanceTicket[]
-  housekeeping    HousekeepingTask[]
+  id          String      @id @default(cuid())
+  number      String      @unique
+  name        String
+  type        String
+  description String?
+  price       Decimal     @db.Decimal(12, 2)
+  capacity    Int         @default(2)
+  status      RoomStatus  @default(AVAILABLE)
+  imageUrl    String?
+  bookings    Booking[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
 }
-
 model Booking {
-  id              String    @id @default(uuid())
-  user            User      @relation(fields: [userId], references: [id])
-  userId          String
-  room            Room      @relation(fields: [roomId], references: [id])
-  roomId          String
-  
-  checkIn         DateTime
-  checkOut        DateTime
-  totalAmount     Float
-  status          String    @default("Pendiente") // Pendiente, Confirmado, Cancelado
-  
-  paymentId       String?
-  paymentStatus   String?
-  
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-}
-
-model MaintenanceTicket {
-  id              String    @id @default(uuid())
-  room            Room      @relation(fields: [roomId], references: [id])
-  roomId          String
-  
-  description     String
-  priority        String    @default("Normal") // Baja, Normal, Alta
-  status          String    @default("Pendiente") // Pendiente, En_Proceso, Terminado
-  assignedTo      String?
-  
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-}
-
-model HousekeepingTask {
-  id              String    @id @default(uuid())
-  room            Room      @relation(fields: [roomId], references: [id])
-  roomId          String
-  
-  assignedUser    User?     @relation("AssignedHousekeeper", fields: [assignedTo], references: [id])
-  assignedTo      String?
-  
-  status          String    @default("Pendiente") // Pendiente, Limpiando, Terminado
-  notes           String?
-  
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-}
-
-model ChatMessage {
-  id              String    @id @default(uuid())
-  sender          User      @relation("MessagesSent", fields: [senderId], references: [id])
-  senderId        String
-  receiver        User      @relation("MessagesReceived", fields: [receiverId], references: [id])
-  receiverId      String
-  
-  message         String
-  createdAt       DateTime  @default(now())
-}
-
-model AuditLog {
-  id              String    @id @default(uuid())
-  user            User?     @relation(fields: [userId], references: [id])
-  userId          String?
-  
-  action          String
-  details         String
-  ipAddress       String?
-  
-  createdAt       DateTime  @default(now())
+  id        String        @id @default(cuid())
+  folio     String        @unique
+  userId    String
+  user      User          @relation(fields: [userId], references: [id])
+  roomId    String
+  room      Room          @relation(fields: [roomId], references: [id])
+  checkIn   DateTime
+  checkOut  DateTime
+  guests    Int
+  total     Decimal       @db.Decimal(12, 2)
+  status    BookingStatus @default(PENDING)
+  notes     String?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  @@index([roomId, checkIn, checkOut])
+  @@index([userId, status])
 }

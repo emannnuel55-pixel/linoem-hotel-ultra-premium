@@ -1,0 +1,1 @@
+import "./globals.css";export const metadata={title:"LINOEM Hotel | Reservaciones",description:"Experiencias memorables, reservaciones seguras."};export default function Layout({children}:{children:React.ReactNode}){return <html lang="es"><body>{children}</body></html>}
