@@ -2,6 +2,7 @@ const API = window.LINOEM.API_URL;
 let currentTab = 'resumen';
 let properties = [];
 let expenses = [];
+let users = [];
 let dashboard = { total: 0, available: 0, expenses: 0 };
 
 const headers = () => ({
@@ -17,10 +18,11 @@ const money = n => new Intl.NumberFormat('es-MX', {
 
 async function load() {
   try {
-    const [resDash, resProp, resExp] = await Promise.all([
+    const [resDash, resProp, resExp, resUsers] = await Promise.all([
       fetch(API + '/v1/dashboard', { headers: headers() }).then(r => r.json()).catch(() => null),
       fetch(API + '/v1/properties', { headers: headers() }).then(r => r.json()).catch(() => null),
-      fetch(API + '/v1/expenses', { headers: headers() }).then(r => r.json()).catch(() => null)
+      fetch(API + '/v1/expenses', { headers: headers() }).then(r => r.json()).catch(() => null),
+      fetch(API + '/v1/users', { headers: headers() }).then(r => r.json()).catch(() => null)
     ]);
 
     if (resDash) {
@@ -35,6 +37,9 @@ async function load() {
     }
     if (resExp && resExp.items) {
       expenses = resExp.items;
+    }
+    if (resUsers && resUsers.items) {
+      users = resUsers.items;
     }
   } catch (err) {
     console.error('Error loading data:', err);
@@ -52,7 +57,7 @@ function render() {
     { id: 'finanzas', label: '$ Finanzas' },
     { id: 'personal', label: '♙ Personal' },
     { id: 'nomina', label: '◫ Nómina' },
-    { id: 'configuracion', label: '⚙ Configuración' }
+    { id: 'configuracion', label: '⚙ Usuarios / Config' }
   ];
 
   let mainContent = '';
@@ -212,6 +217,48 @@ function render() {
         </div>
       </section>
     `;
+  } else if (currentTab === 'configuracion') {
+    mainContent = `
+      <header class="head">
+        <div>
+          <h1>Usuarios y Configuración</h1>
+          <p>Gestiona los usuarios huéspedes registrados en la plataforma, edita sus datos y restablece contraseñas</p>
+        </div>
+        <button class="add" id="addUserBtn">+ Crear Usuario</button>
+      </header>
+      <section class="users-list">
+        <div class="box">
+          <h3>Huéspedes Registrados</h3>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Nombre</th>
+                  <th>Correo Electrónico</th>
+                  <th>Fecha de Registro</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${users.length === 0 ? '<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--muted)">No hay usuarios registrados.</td></tr>' : users.map(u => `
+                  <tr>
+                    <td><strong>${u.name}</strong></td>
+                    <td><code>${u.email}</code></td>
+                    <td>${new Date(u.created_at).toLocaleDateString('es-MX')}</td>
+                    <td>
+                      <div class="actions-group">
+                        <button class="btn-action btn-primary" onclick="openEditUserModal('${u.id}', '${u.name}', '${u.email}')">Editar / Password</button>
+                        <button class="btn-action btn-danger" onclick="deleteUser('${u.id}')">Eliminar</button>
+                      </div>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    `;
   } else {
     mainContent = `
       <header class="head">
@@ -233,7 +280,6 @@ function render() {
       <aside class="side">
         <div class="logo">
           <img src="/logo.jpg" alt="Logo" class="logo-img">
-          <span>HTJ <b>OPS</b></span>
         </div>
         <div class="menu">
           ${menuItems.map(m => `
@@ -252,7 +298,7 @@ function render() {
         { id: 'resumen', icon: '▦', label: 'Inicio' },
         { id: 'propiedades', icon: '⌂', label: 'Unidades' },
         { id: 'finanzas', icon: '$', label: 'Finanzas' },
-        { id: 'nomina', icon: '◫', label: 'Nómina' }
+        { id: 'configuracion', icon: '⚙', label: 'Usuarios' }
       ].map(m => `
         <button class="${m.id === currentTab ? 'active' : ''}" onclick="switchTab('${m.id}')">
           <b>${m.icon}</b>${m.label}
@@ -267,6 +313,9 @@ function render() {
 
   const addExpenseBtn = document.querySelector('#addExpenseBtn');
   if (addExpenseBtn) addExpenseBtn.onclick = openExpenseModal;
+
+  const addUserBtn = document.querySelector('#addUserBtn');
+  if (addUserBtn) addUserBtn.onclick = openUserModal;
 }
 
 window.switchTab = function(tabId) {
@@ -406,6 +455,118 @@ function openExpenseModal() {
     }
   };
 }
+
+function openUserModal() {
+  modal('Crear Nuevo Huésped / Usuario', `
+    <form id="userForm">
+      <div style="margin-bottom:12px;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Nombre Completo</label>
+        <input name="name" required placeholder="Ej: Juan Pérez" style="width:100%;">
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Correo Electrónico</label>
+        <input name="email" type="email" required placeholder="juan@gmail.com" style="width:100%;">
+      </div>
+      <div style="margin-bottom:20px;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Contraseña (Min. 8 caracteres)</label>
+        <input name="password" type="password" required placeholder="••••••••" style="width:100%;">
+      </div>
+      <button class="primary" style="width:100%;padding:14px;background:var(--gold);color:#171106;font-weight:bold;">Crear Usuario</button>
+    </form>
+  `);
+
+  document.querySelector('#userForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const body = {
+      name: fd.get('name'),
+      email: fd.get('email'),
+      password: fd.get('password')
+    };
+
+    try {
+      const res = await fetch(API + '/v1/users', {
+        method: 'POST',
+        headers: headers(),
+        body: JSON.stringify(body)
+      });
+      if (res.ok) {
+        document.querySelector('.modal').remove();
+        load();
+      } else {
+        alert('Error al registrar el usuario.');
+      }
+    } catch (err) {
+      alert('Error de conexión con la API.');
+    }
+  };
+}
+
+window.openEditUserModal = function(id, name, email) {
+  modal('Editar Huésped / Cambiar Contraseña', `
+    <form id="editUserForm">
+      <div style="margin-bottom:12px;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Nombre Completo</label>
+        <input name="name" required value="${name}" style="width:100%;">
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Correo Electrónico</label>
+        <input name="email" type="email" required value="${email}" style="width:100%;">
+      </div>
+      <div style="margin-bottom:20px;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Nueva Contraseña (Dejar en blanco para no cambiar)</label>
+        <input name="password" type="password" placeholder="••••••••" style="width:100%;">
+      </div>
+      <button class="primary" style="width:100%;padding:14px;background:var(--gold);color:#171106;font-weight:bold;">Guardar Cambios</button>
+    </form>
+  `);
+
+  document.querySelector('#editUserForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const body = {
+      name: fd.get('name'),
+      email: fd.get('email')
+    };
+    const password = fd.get('password');
+    if (password && password.trim().length >= 8) {
+      body.password = password;
+    }
+
+    try {
+      const res = await fetch(API + '/v1/users/' + id, {
+        method: 'PUT',
+        headers: headers(),
+        body: JSON.stringify(body)
+      });
+      if (res.ok) {
+        document.querySelector('.modal').remove();
+        load();
+      } else {
+        alert('Error al actualizar el usuario.');
+      }
+    } catch (err) {
+      alert('Error de conexión.');
+    }
+  };
+};
+
+window.deleteUser = async function(id) {
+  if (!confirm('¿Estás seguro de que deseas eliminar este usuario? Se eliminarán también sus reservas asociadas.')) return;
+  try {
+    const res = await fetch(API + '/v1/users/' + id, {
+      method: 'DELETE',
+      headers: headers()
+    });
+    if (res.ok) {
+      load();
+    } else {
+      alert('Error al eliminar el usuario.');
+    }
+  } catch (err) {
+    alert('Error de conexión.');
+  }
+};
 
 window.publishProperty = async function(id) {
   try {
