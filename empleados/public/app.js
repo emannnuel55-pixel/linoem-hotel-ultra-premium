@@ -3,6 +3,9 @@ let currentTab = 'resumen';
 let properties = [];
 let expenses = [];
 let users = [];
+let reservations = [];
+let employees = [];
+let payrolls = [];
 let dashboard = { total: 0, available: 0, expenses: 0 };
 
 const headers = () => ({
@@ -18,11 +21,14 @@ const money = n => new Intl.NumberFormat('es-MX', {
 
 async function load() {
   try {
-    const [resDash, resProp, resExp, resUsers] = await Promise.all([
+    const [resDash, resProp, resExp, resUsers, resRes, resEmp, resPay] = await Promise.all([
       fetch(API + '/v1/dashboard', { headers: headers() }).then(r => r.json()).catch(() => null),
       fetch(API + '/v1/properties', { headers: headers() }).then(r => r.json()).catch(() => null),
       fetch(API + '/v1/expenses', { headers: headers() }).then(r => r.json()).catch(() => null),
-      fetch(API + '/v1/users', { headers: headers() }).then(r => r.json()).catch(() => null)
+      fetch(API + '/v1/users', { headers: headers() }).then(r => r.json()).catch(() => null),
+      fetch(API + '/v1/reservations', { headers: headers() }).then(r => r.json()).catch(() => null),
+      fetch(API + '/v1/employees', { headers: headers() }).then(r => r.json()).catch(() => null),
+      fetch(API + '/v1/payroll', { headers: headers() }).then(r => r.json()).catch(() => null)
     ]);
 
     if (resDash) {
@@ -32,15 +38,12 @@ async function load() {
         expenses: resDash.expenses || 0
       };
     }
-    if (resProp && resProp.items) {
-      properties = resProp.items;
-    }
-    if (resExp && resExp.items) {
-      expenses = resExp.items;
-    }
-    if (resUsers && resUsers.items) {
-      users = resUsers.items;
-    }
+    if (resProp && resProp.items) properties = resProp.items;
+    if (resExp && resExp.items) expenses = resExp.items;
+    if (resUsers && resUsers.items) users = resUsers.items;
+    if (resRes && resRes.items) reservations = resRes.items;
+    if (resEmp && resEmp.items) employees = resEmp.items;
+    if (resPay && resPay.items) payrolls = resPay.items;
   } catch (err) {
     console.error('Error loading data:', err);
   }
@@ -104,9 +107,9 @@ function render() {
         <article class="box">
           <h3>Estado operativo</h3>
           <div class="status"><span><i class="dot"></i>Disponibles</span><b>${dashboard.available}</b></div>
-          <div class="status"><span><i class="dot warn"></i>Limpieza</span><b>6</b></div>
-          <div class="status"><span><i class="dot red"></i>Mantenimiento</span><b>3</b></div>
-          <div class="status"><span><i class="dot"></i>Ocupadas</span><b>${dashboard.total - dashboard.available}</b></div>
+          <div class="status"><span><i class="dot warn"></i>Limpieza</span><b>${properties.filter(p => p.status === 'CLEANING').length}</b></div>
+          <div class="status"><span><i class="dot red"></i>Mantenimiento</span><b>${properties.filter(p => p.status === 'MAINTENANCE').length}</b></div>
+          <div class="status"><span><i class="dot" style="background:#5271ff"></i>Ocupadas</span><b>${properties.filter(p => p.status === 'OCCUPIED').length}</b></div>
         </article>
       </section>
     `;
@@ -130,7 +133,7 @@ function render() {
                   <th>Tipo</th>
                   <th>Ciudad</th>
                   <th>Precio</th>
-                  <th>Estado</th>
+                  <th>Estado Sincronización</th>
                   <th>Acciones</th>
                 </tr>
               </thead>
@@ -148,9 +151,156 @@ function render() {
                     </td>
                     <td>
                       <div class="actions-group">
-                        ${p.published ? '' : `<button class="btn-action btn-primary" onclick="publishProperty('${p.id}')">Sincronizar / Publicar</button>`}
-                        <button class="btn-action btn-danger" onclick="deletePropertyLocal('${p.id}')">Eliminar</button>
+                        <button class="btn-action btn-primary" onclick="openEditPropertyModal('${p.id}', '${p.name}', '${p.type}', '${p.city}', '${p.address || ''}', ${p.max_guests}, ${p.base_price})">Editar</button>
+                        ${p.published ? '' : `<button class="btn-action" style="background:var(--green);color:#0a3a22" onclick="publishProperty('${p.id}')">Sincronizar</button>`}
+                        <button class="btn-action btn-danger" onclick="deleteProperty('${p.id}')">Eliminar</button>
                       </div>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    `;
+  } else if (currentTab === 'reservaciones') {
+    mainContent = `
+      <header class="head">
+        <div>
+          <h1>Reservaciones</h1>
+          <p>Visualiza y administra las reservas hechas por los huéspedes</p>
+        </div>
+      </header>
+      <section class="reservations-list">
+        <div class="box">
+          <h3>Registro de Reservaciones</h3>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Huésped</th>
+                  <th>Alojamiento</th>
+                  <th>Fechas</th>
+                  <th>Personas</th>
+                  <th>Estado</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${reservations.length === 0 ? '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--muted)">No hay reservaciones registradas.</td></tr>' : reservations.map(r => `
+                  <tr>
+                    <td><strong>${r.guestName}</strong><br><small style="color:var(--muted)">${r.guestEmail}</small></td>
+                    <td>${r.propertyName}</td>
+                    <td>${new Date(r.startsOn).toLocaleDateString('es-MX')} → ${new Date(r.endsOn).toLocaleDateString('es-MX')}</td>
+                    <td>${r.guests} huéspedes</td>
+                    <td>
+                      <span class="badge ${r.status === 'PAID' ? 'badge-published' : r.status === 'CANCELLED' ? 'badge-draft' : 'badge-type'}">
+                        ${r.status}
+                      </span>
+                    </td>
+                    <td>
+                      <div class="actions-group">
+                        <button class="btn-action btn-primary" onclick="openEditReservationModal('${r.id}', '${r.status}', ${r.guests})">Editar</button>
+                        <button class="btn-action btn-danger" onclick="deleteReservation('${r.id}')">Eliminar</button>
+                      </div>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    `;
+  } else if (currentTab === 'limpieza') {
+    mainContent = `
+      <header class="head">
+        <div>
+          <h1>Limpieza / Housekeeping</h1>
+          <p>Monitorea y actualiza el estado de aseo de cada habitación y propiedad</p>
+        </div>
+      </header>
+      <section class="properties-list">
+        <div class="box">
+          <h3>Estado de Limpieza de las Unidades</h3>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Propiedad</th>
+                  <th>Ciudad</th>
+                  <th>Estado Operativo</th>
+                  <th>Cambiar Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${properties.length === 0 ? '<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--muted)">No hay propiedades registradas.</td></tr>' : properties.map(p => `
+                  <tr>
+                    <td><strong>${p.name}</strong></td>
+                    <td>${p.city}</td>
+                    <td>
+                      <span class="badge" style="background:${p.status === 'AVAILABLE' ? 'rgba(79,209,149,0.15)' : p.status === 'CLEANING' ? 'rgba(255,184,78,0.15)' : p.status === 'MAINTENANCE' ? 'rgba(255,101,119,0.15)' : 'rgba(82,113,255,0.15)'};color:${p.status === 'AVAILABLE' ? 'var(--green)' : p.status === 'CLEANING' ? '#ffb84e' : p.status === 'MAINTENANCE' ? 'var(--red)' : '#5271ff'}">
+                        ● ${p.status}
+                      </span>
+                    </td>
+                    <td>
+                      <select onchange="updatePropertyStatus('${p.id}', this.value)" style="padding:6px 12px;border:1px solid rgba(255,255,255,0.1);background:var(--panel2);color:white;border-radius:8px;">
+                        <option value="AVAILABLE" ${p.status === 'AVAILABLE' ? 'selected' : ''}>Disponible / Limpio</option>
+                        <option value="CLEANING" ${p.status === 'CLEANING' ? 'selected' : ''}>Limpieza en Proceso</option>
+                        <option value="MAINTENANCE" ${p.status === 'MAINTENANCE' ? 'selected' : ''}>Mantenimiento</option>
+                        <option value="OCCUPIED" ${p.status === 'OCCUPIED' ? 'selected' : ''}>Ocupado</option>
+                      </select>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    `;
+  } else if (currentTab === 'mantenimiento') {
+    mainContent = `
+      <header class="head">
+        <div>
+          <h1>Mantenimiento</h1>
+          <p>Reporta y gestiona reparaciones y desperfectos en tus propiedades</p>
+        </div>
+      </header>
+      <section class="properties-list">
+        <div class="box">
+          <h3>Unidades en Mantenimiento o Reportadas</h3>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Propiedad</th>
+                  <th>Ubicación</th>
+                  <th>Estado</th>
+                  <th>Detalles del Incidente</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${properties.length === 0 ? '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--muted)">No hay propiedades.</td></tr>' : properties.map(p => `
+                  <tr>
+                    <td><strong>${p.name}</strong></td>
+                    <td>${p.city} · ${p.address || ''}</td>
+                    <td>
+                      <span class="badge ${p.status === 'MAINTENANCE' ? 'badge-danger' : 'badge-draft'}" style="${p.status === 'MAINTENANCE' ? 'background:rgba(255,101,119,0.15);color:var(--red);' : ''}">
+                        ${p.status}
+                      </span>
+                    </td>
+                    <td>
+                      <span style="font-size:0.9rem;color:${p.details?.incident ? 'white' : 'var(--muted)'}">
+                        ${p.details?.incident || 'Ninguno reportado'}
+                      </span>
+                    </td>
+                    <td>
+                      <button class="btn-action btn-primary" onclick="openMaintenanceReportModal('${p.id}', '${p.details?.incident || ''}')">
+                        Reportar / Editar Incidente
+                      </button>
                     </td>
                   </tr>
                 `).join('')}
@@ -217,6 +367,104 @@ function render() {
         </div>
       </section>
     `;
+  } else if (currentTab === 'personal') {
+    mainContent = `
+      <header class="head">
+        <div>
+          <h1>Personal / Empleados</h1>
+          <p>Gestiona las cuentas del personal administrativo, limpieza y mantenimiento</p>
+        </div>
+        <button class="add" id="addEmployeeBtn">+ Crear Empleado</button>
+      </header>
+      <section class="users-list">
+        <div class="box">
+          <h3>Listado de Personal</h3>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Nombre</th>
+                  <th>Correo</th>
+                  <th>Rol</th>
+                  <th>Estado</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${employees.length === 0 ? '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--muted)">No hay empleados registrados.</td></tr>' : employees.map(e => `
+                  <tr>
+                    <td><strong>${e.name}</strong></td>
+                    <td><code>${e.email}</code></td>
+                    <td><span class="badge badge-type">${e.role}</span></td>
+                    <td>
+                      <span class="badge ${e.active ? 'badge-published' : 'badge-draft'}">
+                        ${e.active ? 'Activo' : 'Inactivo'}
+                      </span>
+                    </td>
+                    <td>
+                      <div class="actions-group">
+                        <button class="btn-action btn-primary" onclick="openEditEmployeeModal('${e.id}', '${e.name}', '${e.email}', '${e.role}', ${e.active})">Editar</button>
+                        <button class="btn-action btn-danger" onclick="deleteEmployee('${e.id}')">Eliminar</button>
+                      </div>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    `;
+  } else if (currentTab === 'nomina') {
+    mainContent = `
+      <header class="head">
+        <div>
+          <h1>Nómina / Payroll</h1>
+          <p>Administra los pagos periódicos del personal registrado</p>
+        </div>
+        <button class="add" id="addPayrollBtn">+ Registrar Nómina</button>
+      </header>
+      <section class="users-list">
+        <div class="box">
+          <h3>Pagos Registrados</h3>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Empleado</th>
+                  <th>Periodo</th>
+                  <th>Sueldo Bruto</th>
+                  <th>Neto Recibido</th>
+                  <th>Estado</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${payrolls.length === 0 ? '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--muted)">No hay recibos de nómina registrados.</td></tr>' : payrolls.map(p => `
+                  <tr>
+                    <td><strong>${p.employeeName}</strong></td>
+                    <td>${new Date(p.periodStart).toLocaleDateString('es-MX')} al ${new Date(p.periodEnd).toLocaleDateString('es-MX')}</td>
+                    <td>${money(p.gross)}</td>
+                    <td style="font-weight:bold;color:var(--green)">${money(p.net)}</td>
+                    <td>
+                      <span class="badge ${p.status === 'PAID' ? 'badge-published' : p.status === 'APPROVED' ? 'badge-type' : 'badge-draft'}">
+                        ${p.status}
+                      </span>
+                    </td>
+                    <td>
+                      <div class="actions-group">
+                        ${p.status !== 'PAID' ? `<button class="btn-action btn-primary" onclick="updatePayrollStatus('${p.id}', 'PAID')">Marcar como Pagado</button>` : ''}
+                        <button class="btn-action btn-danger" onclick="deletePayroll('${p.id}')">Eliminar</button>
+                      </div>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    `;
   } else if (currentTab === 'configuracion') {
     mainContent = `
       <header class="head">
@@ -259,20 +507,6 @@ function render() {
         </div>
       </section>
     `;
-  } else {
-    mainContent = `
-      <header class="head">
-        <div>
-          <h1>${menuItems.find(m => m.id === currentTab).label}</h1>
-          <p>Módulo de administración operativa y control</p>
-        </div>
-      </header>
-      <section class="box" style="text-align:center;padding:60px 20px;">
-        <span style="font-size:3rem;display:block;margin-bottom:15px;">⚒</span>
-        <h2>Módulo en construcción interactiva</h2>
-        <p style="color:var(--muted);max-width:500px;margin:auto;">Este módulo operativo se conecta automáticamente con tus flujos de base de datos de producción y OIDC. Puedes seguir parametrizando la interfaz.</p>
-      </section>
-    `;
   }
 
   document.querySelector('#app').innerHTML = `
@@ -297,6 +531,7 @@ function render() {
       ${[
         { id: 'resumen', icon: '▦', label: 'Inicio' },
         { id: 'propiedades', icon: '⌂', label: 'Unidades' },
+        { id: 'reservaciones', icon: '▣', label: 'Reservas' },
         { id: 'finanzas', icon: '$', label: 'Finanzas' },
         { id: 'configuracion', icon: '⚙', label: 'Usuarios' }
       ].map(m => `
@@ -316,6 +551,12 @@ function render() {
 
   const addUserBtn = document.querySelector('#addUserBtn');
   if (addUserBtn) addUserBtn.onclick = openUserModal;
+
+  const addEmployeeBtn = document.querySelector('#addEmployeeBtn');
+  if (addEmployeeBtn) addEmployeeBtn.onclick = openEmployeeModal;
+
+  const addPayrollBtn = document.querySelector('#addPayrollBtn');
+  if (addPayrollBtn) addPayrollBtn.onclick = openPayrollModal;
 }
 
 window.switchTab = function(tabId) {
@@ -392,54 +633,279 @@ function openPropertyModal() {
   };
 }
 
-function openExpenseModal() {
-  modal('Registrar Nuevo Gasto', `
-    <form id="expenseForm">
+window.openEditPropertyModal = function(id, name, type, city, address, maxGuests, basePrice) {
+  modal('Editar Propiedad / Alojamiento', `
+    <form id="editPropertyForm">
       <div style="margin-bottom:12px;">
-        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Descripción / Concepto</label>
-        <input name="description" required placeholder="Ej: Compra de sábanas premium" style="width:100%;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Nombre</label>
+        <input name="name" required value="${name}" style="width:100%;">
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Tipo</label>
+        <select name="type" required style="width:100%;padding:14px;border:1px solid var(--panel2);background:var(--panel);color:white;border-radius:12px;">
+          <option value="SUITE" ${type === 'SUITE' ? 'selected' : ''}>Suite</option>
+          <option value="HOTEL" ${type === 'HOTEL' ? 'selected' : ''}>Hotel</option>
+          <option value="HOUSE" ${type === 'HOUSE' ? 'selected' : ''}>Casa</option>
+          <option value="APARTMENT" ${type === 'APARTMENT' ? 'selected' : ''}>Departamento</option>
+          <option value="ROOM" ${type === 'ROOM' ? 'selected' : ''}>Habitación</option>
+        </select>
       </div>
       <div style="margin-bottom:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px;">
         <div>
-          <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Categoría</label>
-          <input name="category" required placeholder="Limpieza, Servicios, etc." style="width:100%;">
+          <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Ciudad</label>
+          <input name="city" required value="${city}" style="width:100%;">
         </div>
         <div>
-          <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Tipo</label>
-          <select name="kind" required style="width:100%;padding:14px;border:1px solid var(--panel2);background:var(--panel);color:white;border-radius:12px;">
-            <option value="VARIABLE">Variable</option>
-            <option value="FIXED">Fijo</option>
-            <option value="ASSET">Activo</option>
-          </select>
+          <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Huéspedes</label>
+          <input name="maxGuests" type="number" required value="${maxGuests}" min="1" style="width:100%;">
         </div>
       </div>
-      <div style="margin-bottom:20px;display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-        <div>
-          <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Monto (MXN)</label>
-          <input name="amount" type="number" required placeholder="500" min="1" style="width:100%;">
-        </div>
-        <div>
-          <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Fecha</label>
-          <input name="occurredOn" type="date" required value="${new Date().toISOString().split('T')[0]}" style="width:100%;">
-        </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Dirección</label>
+        <input name="address" required value="${address}" style="width:100%;">
       </div>
-      <button class="primary" style="width:100%;padding:14px;background:var(--gold);color:#171106;font-weight:bold;">Registrar Gasto</button>
+      <div style="margin-bottom:20px;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Precio Base (MXN)</label>
+        <input name="basePrice" type="number" required value="${basePrice}" min="0" style="width:100%;">
+      </div>
+      <button class="primary" style="width:100%;padding:14px;background:var(--gold);color:#171106;font-weight:bold;">Guardar Cambios</button>
     </form>
   `);
 
-  document.querySelector('#expenseForm').onsubmit = async (e) => {
+  document.querySelector('#editPropertyForm').onsubmit = async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
     const body = {
-      description: fd.get('description'),
-      category: fd.get('category'),
-      kind: fd.get('kind'),
-      amount: parseFloat(fd.get('amount')),
-      occurredOn: new Date(fd.get('occurredOn')).toISOString()
+      name: fd.get('name'),
+      type: fd.get('type'),
+      city: fd.get('city'),
+      address: fd.get('address'),
+      maxGuests: parseInt(fd.get('maxGuests')),
+      basePrice: parseFloat(fd.get('basePrice'))
     };
 
     try {
-      const res = await fetch(API + '/v1/expenses', {
+      const res = await fetch(API + '/v1/properties/' + id, {
+        method: 'PUT',
+        headers: headers(),
+        body: JSON.stringify(body)
+      });
+      if (res.ok) {
+        document.querySelector('.modal').remove();
+        load();
+      } else {
+        alert('Error al guardar los cambios.');
+      }
+    } catch (err) {
+      alert('Error de conexión.');
+    }
+  };
+};
+
+window.deleteProperty = async function(id) {
+  if (!confirm('¿Estás seguro de que deseas eliminar esta propiedad?')) return;
+  try {
+    const res = await fetch(API + '/v1/properties/' + id, {
+      method: 'DELETE',
+      headers: headers()
+    });
+    if (res.ok) {
+      load();
+    } else {
+      alert('Error al eliminar la propiedad.');
+    }
+  } catch (err) {
+    alert('Error de conexión.');
+  }
+};
+
+window.updatePropertyStatus = async function(id, newStatus) {
+  const prop = properties.find(p => p.id === id);
+  if (!prop) return;
+  const body = {
+    name: prop.name,
+    type: prop.type,
+    city: prop.city,
+    address: prop.address || '',
+    maxGuests: prop.max_guests,
+    basePrice: parseFloat(prop.base_price),
+    status: newStatus
+  };
+
+  try {
+    const res = await fetch(API + '/v1/properties/' + id, {
+      method: 'PUT',
+      headers: headers(),
+      body: JSON.stringify(body)
+    });
+    if (res.ok) {
+      load();
+    } else {
+      alert('Error al actualizar el estado.');
+    }
+  } catch (err) {
+    alert('Error de conexión.');
+  }
+};
+
+window.openMaintenanceReportModal = function(id, currentIncident) {
+  modal('Reportar / Editar Incidente de Mantenimiento', `
+    <form id="maintenanceForm">
+      <div style="margin-bottom:20px;">
+        <label style="display:block;margin-bottom:8px;font-size:0.85rem;color:var(--muted)">Describa el desperfecto o trabajo requerido</label>
+        <input name="incident" required value="${currentIncident}" placeholder="Ej: Fuga de agua en baño o aire acondicionado fallando" style="width:100%;">
+      </div>
+      <div style="margin-bottom:20px;">
+        <label style="display:block;margin-bottom:8px;font-size:0.85rem;color:var(--muted)">¿Poner unidad fuera de servicio en Mantenimiento?</label>
+        <select name="status" style="width:100%;padding:14px;border:1px solid var(--panel2);background:var(--panel);color:white;border-radius:12px;">
+          <option value="MAINTENANCE">Sí, colocar en Mantenimiento</option>
+          <option value="AVAILABLE">No, mantener Disponible</option>
+        </select>
+      </div>
+      <button class="primary" style="width:100%;padding:14px;background:var(--gold);color:#171106;font-weight:bold;">Guardar Reporte</button>
+    </form>
+  `);
+
+  document.querySelector('#maintenanceForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const prop = properties.find(p => p.id === id);
+    const newStatus = fd.get('status');
+    const incidentText = fd.get('incident');
+
+    const body = {
+      name: prop.name,
+      type: prop.type,
+      city: prop.city,
+      address: prop.address || '',
+      maxGuests: prop.max_guests,
+      basePrice: parseFloat(prop.base_price),
+      status: newStatus,
+      details: { ...prop.details, incident: incidentText }
+    };
+
+    try {
+      const res = await fetch(API + '/v1/properties/' + id, {
+        method: 'PUT',
+        headers: headers(),
+        body: JSON.stringify(body)
+      });
+      if (res.ok) {
+        document.querySelector('.modal').remove();
+        load();
+      } else {
+        alert('Error al guardar el reporte.');
+      }
+    } catch (err) {
+      alert('Error de conexión.');
+    }
+  };
+};
+
+window.openEditReservationModal = function(id, currentStatus, currentGuests) {
+  modal('Editar Estado de Reservación', `
+    <form id="editResForm">
+      <div style="margin-bottom:12px;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Estado de Pago / Reserva</label>
+        <select name="status" style="width:100%;padding:14px;border:1px solid var(--panel2);background:var(--panel);color:white;border-radius:12px;">
+          <option value="HOLD" ${currentStatus === 'HOLD' ? 'selected' : ''}>HOLD (Esperando pago)</option>
+          <option value="PAID" ${currentStatus === 'PAID' ? 'selected' : ''}>PAID (Pagado y Confirmado)</option>
+          <option value="CANCELLED" ${currentStatus === 'CANCELLED' ? 'selected' : ''}>CANCELLED (Cancelado)</option>
+        </select>
+      </div>
+      <div style="margin-bottom:20px;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Huéspedes</label>
+        <input name="guests" type="number" required value="${currentGuests}" min="1" style="width:100%;">
+      </div>
+      <button class="primary" style="width:100%;padding:14px;background:var(--gold);color:#171106;font-weight:bold;">Guardar Cambios</button>
+    </form>
+  `);
+
+  document.querySelector('#editResForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const body = {
+      status: fd.get('status'),
+      guests: parseInt(fd.get('guests'))
+    };
+
+    try {
+      const res = await fetch(API + '/v1/reservations/' + id, {
+        method: 'PUT',
+        headers: headers(),
+        body: JSON.stringify(body)
+      });
+      if (res.ok) {
+        document.querySelector('.modal').remove();
+        load();
+      } else {
+        alert('Error al actualizar la reservación.');
+      }
+    } catch (err) {
+      alert('Error de conexión.');
+    }
+  };
+};
+
+window.deleteReservation = async function(id) {
+  if (!confirm('¿Estás seguro de que deseas eliminar esta reservación?')) return;
+  try {
+    const res = await fetch(API + '/v1/reservations/' + id, {
+      method: 'DELETE',
+      headers: headers()
+    });
+    if (res.ok) {
+      load();
+    } else {
+      alert('Error al eliminar la reservación.');
+    }
+  } catch (err) {
+    alert('Error de conexión.');
+  }
+};
+
+function openEmployeeModal() {
+  modal('Crear Nuevo Colaborador / Empleado', `
+    <form id="employeeForm">
+      <div style="margin-bottom:12px;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Nombre Completo</label>
+        <input name="name" required placeholder="Ej: Carlos Gómez" style="width:100%;">
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Correo Electrónico</label>
+        <input name="email" type="email" required placeholder="carlos@htj.com" style="width:100%;">
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Rol Operativo</label>
+        <select name="role" required style="width:100%;padding:14px;border:1px solid var(--panel2);background:var(--panel);color:white;border-radius:12px;">
+          <option value="RECEPTION">Recepcionista</option>
+          <option value="HOUSEKEEPING">Personal de Limpieza</option>
+          <option value="MAINTENANCE">Personal de Mantenimiento</option>
+          <option value="FINANCE">Finanzas / Administración</option>
+          <option value="MANAGER">Gerente</option>
+          <option value="SUPER_ADMIN">Administrador General</option>
+        </select>
+      </div>
+      <div style="margin-bottom:20px;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Contraseña (Min. 8 caracteres)</label>
+        <input name="password" type="password" required placeholder="••••••••" style="width:100%;">
+      </div>
+      <button class="primary" style="width:100%;padding:14px;background:var(--gold);color:#171106;font-weight:bold;">Crear Empleado</button>
+    </form>
+  `);
+
+  document.querySelector('#employeeForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const body = {
+      name: fd.get('name'),
+      email: fd.get('email'),
+      role: fd.get('role'),
+      password: fd.get('password')
+    };
+
+    try {
+      const res = await fetch(API + '/v1/employees', {
         method: 'POST',
         headers: headers(),
         body: JSON.stringify(body)
@@ -448,15 +914,214 @@ function openExpenseModal() {
         document.querySelector('.modal').remove();
         load();
       } else {
-        alert('Error al registrar el gasto.');
+        alert('Error al registrar el empleado.');
       }
     } catch (err) {
-      alert('Error de conexión con la API.');
+      alert('Error de conexión.');
     }
   };
 }
 
-function openUserModal() {
+window.openEditEmployeeModal = function(id, name, email, role, active) {
+  modal('Editar Colaborador / Datos de Empleado', `
+    <form id="editEmployeeForm">
+      <div style="margin-bottom:12px;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Nombre Completo</label>
+        <input name="name" required value="${name}" style="width:100%;">
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Correo Electrónico</label>
+        <input name="email" type="email" required value="${email}" style="width:100%;">
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Rol Operativo</label>
+        <select name="role" required style="width:100%;padding:14px;border:1px solid var(--panel2);background:var(--panel);color:white;border-radius:12px;">
+          <option value="RECEPTION" ${role === 'RECEPTION' ? 'selected' : ''}>Recepcionista</option>
+          <option value="HOUSEKEEPING" ${role === 'HOUSEKEEPING' ? 'selected' : ''}>Personal de Limpieza</option>
+          <option value="MAINTENANCE" ${role === 'MAINTENANCE' ? 'selected' : ''}>Personal de Mantenimiento</option>
+          <option value="FINANCE" ${role === 'FINANCE' ? 'selected' : ''}>Finanzas / Administración</option>
+          <option value="MANAGER" ${role === 'MANAGER' ? 'selected' : ''}>Gerente</option>
+          <option value="SUPER_ADMIN" ${role === 'SUPER_ADMIN' ? 'selected' : ''}>Administrador General</option>
+        </select>
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Estado de la Cuenta</label>
+        <select name="active" style="width:100%;padding:14px;border:1px solid var(--panel2);background:var(--panel);color:white;border-radius:12px;">
+          <option value="true" ${active ? 'selected' : ''}>Activa</option>
+          <option value="false" ${!active ? 'selected' : ''}>Suspendida / Inactiva</option>
+        </select>
+      </div>
+      <div style="margin-bottom:20px;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Nueva Contraseña (Dejar en blanco para no cambiar)</label>
+        <input name="password" type="password" placeholder="••••••••" style="width:100%;">
+      </div>
+      <button class="primary" style="width:100%;padding:14px;background:var(--gold);color:#171106;font-weight:bold;">Guardar Cambios</button>
+    </form>
+  `);
+
+  document.querySelector('#editEmployeeForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const body = {
+      name: fd.get('name'),
+      email: fd.get('email'),
+      role: fd.get('role'),
+      active: fd.get('active') === 'true'
+    };
+    const password = fd.get('password');
+    if (password && password.trim().length >= 8) {
+      body.password = password;
+    }
+
+    try {
+      const res = await fetch(API + '/v1/employees/' + id, {
+        method: 'PUT',
+        headers: headers(),
+        body: JSON.stringify(body)
+      });
+      if (res.ok) {
+        document.querySelector('.modal').remove();
+        load();
+      } else {
+        alert('Error al guardar los cambios.');
+      }
+    } catch (err) {
+      alert('Error de conexión.');
+    }
+  };
+};
+
+window.deleteEmployee = async function(id) {
+  if (!confirm('¿Estás seguro de que deseas eliminar este empleado?')) return;
+  try {
+    const res = await fetch(API + '/v1/employees/' + id, {
+      method: 'DELETE',
+      headers: headers()
+    });
+    if (res.ok) {
+      load();
+    } else {
+      alert('Error al eliminar el empleado.');
+    }
+  } catch (err) {
+    alert('Error de conexión.');
+  }
+};
+
+function openPayrollModal() {
+  if (employees.length === 0) {
+    alert('Primero debes registrar empleados en la sección de Personal.');
+    return;
+  }
+
+  modal('Registrar Recibo de Nómina', `
+    <form id="payrollForm">
+      <div style="margin-bottom:12px;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Colaborador / Empleado</label>
+        <select name="employeeId" required style="width:100%;padding:14px;border:1px solid var(--panel2);background:var(--panel);color:white;border-radius:12px;">
+          ${employees.map(e => `<option value="${e.id}">${e.name} (${e.role})</option>`).join('')}
+        </select>
+      </div>
+      <div style="margin-bottom:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div>
+          <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Inicio Periodo</label>
+          <input name="periodStart" type="date" required value="${new Date().toISOString().split('T')[0]}" style="width:100%;">
+        </div>
+        <div>
+          <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Fin Periodo</label>
+          <input name="periodEnd" type="date" required value="${new Date().toISOString().split('T')[0]}" style="width:100%;">
+        </div>
+      </div>
+      <div style="margin-bottom:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div>
+          <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Sueldo Bruto (MXN)</label>
+          <input name="gross" type="number" required value="8000" min="0" style="width:100%;">
+        </div>
+        <div>
+          <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Deducciones / Retención</label>
+          <input name="deductions" type="number" required value="800" min="0" style="width:100%;">
+        </div>
+      </div>
+      <div style="margin-bottom:20px;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Estado de Pago</label>
+        <select name="status" style="width:100%;padding:14px;border:1px solid var(--panel2);background:var(--panel);color:white;border-radius:12px;">
+          <option value="DRAFT">Draft (Borrador)</option>
+          <option value="APPROVED">Approved (Aprobado)</option>
+          <option value="PAID">Paid (Pagado)</option>
+        </select>
+      </div>
+      <button class="primary" style="width:100%;padding:14px;background:var(--gold);color:#171106;font-weight:bold;">Guardar Recibo</button>
+    </form>
+  `);
+
+  document.querySelector('#payrollForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const grossVal = parseFloat(fd.get('gross'));
+    const deductVal = parseFloat(fd.get('deductions'));
+    const body = {
+      employeeId: fd.get('employeeId'),
+      periodStart: fd.get('periodStart'),
+      periodEnd: fd.get('periodEnd'),
+      gross: grossVal,
+      deductions: { tax: deductVal },
+      net: grossVal - deductVal,
+      status: fd.get('status')
+    };
+
+    try {
+      const res = await fetch(API + '/v1/payroll', {
+        method: 'POST',
+        headers: headers(),
+        body: JSON.stringify(body)
+      });
+      if (res.ok) {
+        document.querySelector('.modal').remove();
+        load();
+      } else {
+        alert('Error al registrar la nómina.');
+      }
+    } catch (err) {
+      alert('Error de conexión.');
+    }
+  };
+}
+
+window.updatePayrollStatus = async function(id, newStatus) {
+  try {
+    const res = await fetch(API + '/v1/payroll/' + id, {
+      method: 'PUT',
+      headers: headers(),
+      body: JSON.stringify({ status: newStatus })
+    });
+    if (res.ok) {
+      load();
+    } else {
+      alert('Error al actualizar el estado de nómina.');
+    }
+  } catch (err) {
+    alert('Error de conexión.');
+  }
+};
+
+window.deletePayroll = async function(id) {
+  if (!confirm('¿Estás seguro de que deseas eliminar este recibo?')) return;
+  try {
+    const res = await fetch(API + '/v1/payroll/' + id, {
+      method: 'DELETE',
+      headers: headers()
+    });
+    if (res.ok) {
+      load();
+    } else {
+      alert('Error al eliminar la nómina.');
+    }
+  } catch (err) {
+    alert('Error de conexión.');
+  }
+};
+
+window.openUserModal = function() {
   modal('Crear Nuevo Huésped / Usuario', `
     <form id="userForm">
       <div style="margin-bottom:12px;">
@@ -584,10 +1249,6 @@ window.publishProperty = async function(id) {
   } catch (err) {
     alert('Error de red al sincronizar.');
   }
-};
-
-window.deletePropertyLocal = function(id) {
-  alert('Eliminación protegida en producción. Se requiere rol de SUPER_ADMIN.');
 };
 
 function modal(title, body) {
