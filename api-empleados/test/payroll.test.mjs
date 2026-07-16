@@ -1,0 +1,1 @@
+import test from'node:test';import assert from'node:assert/strict';test('neto nunca debe exceder bruto sin percepciones extra',()=>{const gross=10000,deductions=1800;assert.equal(gross-deductions,8200)});

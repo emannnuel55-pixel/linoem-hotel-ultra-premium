@@ -1,0 +1,1 @@
+{"name":"linoem-hotel-api-empleados","version":"1.0.0","type":"module","scripts":{"start":"node src/server.mjs","test":"node --test","db:migrate":"node src/migrate.mjs"},"dependencies":{"@node-rs/argon2":"^2.0.2","cors":"^2.8.5","express":"^5.1.0","express-rate-limit":"^7.5.1","helmet":"^8.1.0","jose":"^6.0.11","pg":"^8.16.3","zod":"^4.0.5"},"engines":{"node":">=22"}}

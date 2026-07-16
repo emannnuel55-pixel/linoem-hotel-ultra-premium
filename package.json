@@ -1,0 +1,1 @@
+{"name":"linoem-hotel-suite","private":true,"scripts":{"test":"npm --prefix api-clientes test && npm --prefix api-empleados test","check":"node scripts/check.mjs"},"engines":{"node":">=22"}}
