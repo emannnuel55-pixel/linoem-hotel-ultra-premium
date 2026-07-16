@@ -184,7 +184,7 @@ function render() {
                       <td>
                         <div class="actions-group">
                           <button class="btn-action btn-primary" onclick="openEditPropertyModal('${p.id}')">Editar</button>
-                          ${p.published ? '' : `<button class="btn-action" style="background:var(--green);color:#0a3a22" onclick="publishProperty('${p.id}')">Sincronizar</button>`}
+                          <button class="btn-action" style="background:var(--green);color:#0a3a22" onclick="publishProperty('${p.id}')">Sincronizar</button>
                           <button class="btn-action btn-danger" onclick="deleteProperty('${p.id}')">Eliminar</button>
                         </div>
                       </td>
@@ -1627,7 +1627,7 @@ window.publishProperty = async function(id) {
       if (data.synced) {
         alert('✅ ¡Propiedad publicada y sincronizada exitosamente con el portal de huéspedes!');
       } else {
-        alert('✅ Propiedad marcada como publicada.\n\n⚠️ Sincronización pendiente: Para sincronizar automáticamente con el portal de clientes, ve a Railway → api-empleados → Variables y configura:\n\nCLIENT_API_URL = https://api-clientes-production-6b03.up.railway.app');
+        alert('⚠️ Sincronización fallida / pendiente.\n\nDetalles del error: ' + (data.syncError || 'No se configuró CLIENT_API_URL') + '\n\nPara solucionarlo, ve a Railway → api-empleados → Variables y configura:\nCLIENT_API_URL = https://api-clientes-production-6b03.up.railway.app');
       }
       load();
     } else {
