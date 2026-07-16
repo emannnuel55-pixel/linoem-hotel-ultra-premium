@@ -416,6 +416,7 @@ function render() {
             <table class="data-table">
               <thead>
                 <tr>
+                  <th>N° Reloj</th>
                   <th>Nombre</th>
                   <th>Correo</th>
                   <th>Rol</th>
@@ -424,8 +425,9 @@ function render() {
                 </tr>
               </thead>
               <tbody>
-                ${employees.length === 0 ? '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--muted)">No hay empleados registrados.</td></tr>' : employees.map(e => `
+                ${employees.length === 0 ? '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--muted)">No hay empleados registrados.</td></tr>' : employees.map(e => `
                   <tr>
+                    <td><span style="font-family:monospace;background:rgba(212,168,78,0.15);color:var(--gold);padding:3px 8px;border-radius:6px;font-weight:bold;">#${e.clock_number || 'N/A'}</span></td>
                     <td><strong>${e.name}</strong></td>
                     <td><code>${e.email}</code></td>
                     <td><span class="badge badge-type">${e.role}</span></td>
@@ -459,39 +461,50 @@ function render() {
       </header>
       <section class="users-list">
         <div class="box">
-          <h3>Pagos Registrados</h3>
+          <h3>Recibos de Nómina</h3>
           <div class="table-responsive">
             <table class="data-table">
               <thead>
                 <tr>
+                  <th>N° Reloj</th>
                   <th>Empleado</th>
                   <th>Periodo</th>
-                  <th>Sueldo Bruto</th>
-                  <th>Neto Recibido</th>
+                  <th>Percepciones</th>
+                  <th>Deducciones</th>
+                  <th>Neto a Pagar</th>
                   <th>Estado</th>
                   <th>Acciones</th>
                 </tr>
               </thead>
               <tbody>
-                ${payrolls.length === 0 ? '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--muted)">No hay recibos de nómina registrados.</td></tr>' : payrolls.map(p => `
+                ${payrolls.length === 0 ? '<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--muted)">No hay recibos de nómina registrados.</td></tr>' : payrolls.map(p => {
+                  const totalPercepciones = (p.gross||0) + (p.overtimePay||0) + (p.attendanceBonus||0) + (p.punctualityBonus||0);
+                  const totalDeducciones = (p.imssEmployee||0) + (p.infonavit||0) + (p.fonacot||0) + (p.isr||0);
+                  return `
                   <tr>
-                    <td><strong>${p.employeeName}</strong></td>
+                    <td><span style="font-family:monospace;background:rgba(212,168,78,0.15);color:var(--gold);padding:3px 8px;border-radius:6px;font-weight:bold;">#${p.clockNumber || 'N/A'}</span></td>
+                    <td>
+                      <strong>${p.employeeName}</strong><br>
+                      <small style="color:var(--muted)">${p.employeeRole}</small>
+                    </td>
                     <td>${new Date(p.periodStart).toLocaleDateString('es-MX')} al ${new Date(p.periodEnd).toLocaleDateString('es-MX')}</td>
-                    <td>${money(p.gross)}</td>
-                    <td style="font-weight:bold;color:var(--green)">${money(p.net)}</td>
+                    <td style="color:var(--green)">${money(totalPercepciones)}</td>
+                    <td style="color:var(--red)">${money(totalDeducciones)}</td>
+                    <td style="font-weight:bold;font-size:1.05rem;">${money(p.net)}</td>
                     <td>
                       <span class="badge ${p.status === 'PAID' ? 'badge-published' : p.status === 'APPROVED' ? 'badge-type' : 'badge-draft'}">
-                        ${p.status}
+                        ${p.status === 'PAID' ? '✓ PAGADO' : p.status === 'APPROVED' ? 'APROBADO' : 'BORRADOR'}
                       </span>
                     </td>
                     <td>
                       <div class="actions-group">
-                        ${p.status !== 'PAID' ? `<button class="btn-action btn-primary" onclick="updatePayrollStatus('${p.id}', 'PAID')">Marcar como Pagado</button>` : ''}
+                        <button class="btn-action" style="background:#1a3a6e;color:#7eb3ff;" onclick="downloadPayrollPDF('${p.id}')">⬇ PDF</button>
+                        ${p.status !== 'PAID' ? `<button class="btn-action btn-primary" onclick="updatePayrollStatus('${p.id}', 'PAID')">✓ Pagar</button>` : ''}
                         <button class="btn-action btn-danger" onclick="deletePayroll('${p.id}')">Eliminar</button>
                       </div>
                     </td>
                   </tr>
-                `).join('')}
+                `}).join('')}
               </tbody>
             </table>
           </div>
@@ -797,9 +810,52 @@ function openPropertyModal() {
 
       <div style="margin-bottom:16px;">
         <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Fotos y Videos</label>
-        <button type="button" class="btn-action" onclick="document.querySelector('#mediaFiles').click()" style="width:100%;padding:10px;background:var(--panel2);border:1px dashed rgba(255,255,255,0.2);color:white;">📷 Subir Multimedia</button>
+        <button type="button" class="btn-action" onclick="document.querySelector('#mediaFiles').click()" style="width:100%;padding:10px;background:var(--panel2);border:1px dashed rgba(255,255,255,0.2);color:white;">\uD83D\uDCF7 Subir Multimedia</button>
         <input type="file" id="mediaFiles" accept="image/*,video/*" multiple onchange="window.handleMediaUpload(event)" style="display:none;">
         <div id="mediaPreview" style="display:flex;gap:8px;margin-top:10px;overflow-x:auto;padding-bottom:5px;"></div>
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Descripción del Alojamiento</label>
+        <textarea name="description" rows="3" placeholder="Describe el espacio, sus características principales, el ambiente..." style="width:100%;padding:12px;border:1px solid var(--panel2);background:var(--panel);color:white;border-radius:12px;resize:vertical;"></textarea>
+      </div>
+
+      <div style="margin-bottom:12px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+        <div>
+          <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Recámaras</label>
+          <input name="bedrooms" type="number" value="1" min="0" style="width:100%;">
+        </div>
+        <div>
+          <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Baños</label>
+          <input name="bathrooms" type="number" value="1" min="0" style="width:100%;">
+        </div>
+        <div>
+          <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Tamaño (m²)</label>
+          <input name="property_size" type="number" value="" min="0" placeholder="Ej: 45" style="width:100%;">
+        </div>
+      </div>
+
+      <div style="margin-bottom:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div>
+          <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Check-in</label>
+          <input name="check_in_time" type="time" value="15:00" style="width:100%;">
+        </div>
+        <div>
+          <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Check-out</label>
+          <input name="check_out_time" type="time" value="12:00" style="width:100%;">
+        </div>
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <label style="display:block;margin-bottom:6px;font-size:0.85rem;color:var(--muted)">Amenidades</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+          ${['WiFi','Estacionamiento','Alberca','A/C','TV','Cocina','Lavander\u00eda','Gym','Seguridad','Mascotas','Balc\u00f3n','Jard\u00edn','Calefacci\u00f3n','Jacuzzi'].map(a => `<label style="display:flex;align-items:center;gap:8px;font-size:0.82rem;cursor:pointer;padding:6px;background:rgba(255,255,255,0.04);border-radius:8px;"><input type="checkbox" name="amenity_${a.replace(/[^a-z]/gi,'_')}" value="${a}" style="accent-color:var(--gold);">${a}</label>`).join('')}
+        </div>
+      </div>
+
+      <div style="margin-bottom:16px;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Reglas de la Propiedad</label>
+        <textarea name="rules" rows="2" placeholder="Ej: No fumar, no fiestas, mascotas permitidas con depósito..." style="width:100%;padding:12px;border:1px solid var(--panel2);background:var(--panel);color:white;border-radius:12px;resize:vertical;"></textarea>
       </div>
 
       <button class="primary" style="width:100%;padding:14px;background:var(--gold);color:#171106;font-weight:bold;">Guardar Propiedad</button>
@@ -811,6 +867,8 @@ function openPropertyModal() {
   document.querySelector('#propertyForm').onsubmit = async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
+    const amenities = ['WiFi','Estacionamiento','Alberca','A/C','TV','Cocina','Lavander\u00eda','Gym','Seguridad','Mascotas','Balc\u00f3n','Jard\u00edn','Calefacci\u00f3n','Jacuzzi']
+      .filter(a => fd.get('amenity_'+a.replace(/[^a-z]/gi,'_')));
     const body = {
       name: fd.get('name'),
       type: fd.get('type'),
@@ -821,7 +879,15 @@ function openPropertyModal() {
       media: uploadedMedia,
       details: {
         lat: parseFloat(fd.get('lat') || selectedLat),
-        lng: parseFloat(fd.get('lng') || selectedLng)
+        lng: parseFloat(fd.get('lng') || selectedLng),
+        description: fd.get('description') || '',
+        amenities,
+        bedrooms: parseInt(fd.get('bedrooms') || 1),
+        bathrooms: parseInt(fd.get('bathrooms') || 1),
+        property_size: parseFloat(fd.get('property_size') || 0) || undefined,
+        check_in_time: fd.get('check_in_time') || '15:00',
+        check_out_time: fd.get('check_out_time') || '12:00',
+        rules: fd.get('rules') || ''
       }
     };
 
@@ -1268,7 +1334,8 @@ window.deleteEmployee = async function(id) {
   }
 };
 
-function openPayrollModal() {
+
+function openPayrollModal_OLD() {
   if (employees.length === 0) {
     alert('Primero debes registrar empleados en la sección de Personal.');
     return;
@@ -1527,3 +1594,289 @@ function modal(title, body) {
 }
 
 load();
+
+// ============================================================
+// NOMINA PDF — Sistema HTJ OPS (estilo Sistema Tress / IMSS)
+// ============================================================
+function openPayrollModal() {
+  if (employees.length === 0) {
+    alert('Primero debes registrar empleados en la sección de Personal.');
+    return;
+  }
+  const today = new Date().toISOString().split('T')[0];
+  const firstOfMonth = today.substring(0, 8) + '01';
+  modal('\uD83D\uDDD2\uFE0F Registrar N\u00f3mina — Sistema HTJ', `
+    <style>
+      .pay-section{background:rgba(255,255,255,0.04);border-radius:12px;padding:14px;margin-bottom:14px;}
+      .pay-section h4{margin:0 0 10px;font-size:0.75rem;text-transform:uppercase;letter-spacing:1px;color:var(--gold);}
+      .pay-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+      .pay-grid .full{grid-column:1/-1;}
+      .pay-label{display:block;margin-bottom:3px;font-size:0.75rem;color:var(--muted);}
+      .pay-input{width:100%;padding:9px 11px;border:1px solid rgba(255,255,255,0.1);background:var(--panel);color:white;border-radius:9px;font-size:0.85rem;box-sizing:border-box;}
+      .pay-input:focus{outline:none;border-color:var(--gold);}
+      .checadas-row{display:flex;gap:6px;margin-bottom:6px;align-items:center;}
+    </style>
+    <form id="payrollFormNew">
+      <div class="pay-section">
+        <h4>\uD83D\uDC64 Empleado y Periodo</h4>
+        <div style="margin-bottom:8px;">
+          <label class="pay-label">Colaborador</label>
+          <select name="employeeId" required class="pay-input">${employees.map(e => `<option value="${e.id}">${e.name} — #${e.clock_number||'N/A'} (${e.role})</option>`).join('')}</select>
+        </div>
+        <div class="pay-grid">
+          <div><label class="pay-label">Inicio Periodo</label><input name="periodStart" type="date" required value="${firstOfMonth}" class="pay-input"></div>
+          <div><label class="pay-label">Fin Periodo</label><input name="periodEnd" type="date" required value="${today}" class="pay-input"></div>
+          <div><label class="pay-label">D\u00edas Trabajados</label><input name="diasTrab" type="number" value="15" min="0" class="pay-input"></div>
+          <div><label class="pay-label">D\u00edas Festivos</label><input name="diasFest" type="number" value="0" min="0" class="pay-input"></div>
+        </div>
+      </div>
+      <div class="pay-section">
+        <h4>\uD83D\uDFE2 Percepciones</h4>
+        <div class="pay-grid">
+          <div><label class="pay-label">Salario Base (MXN)</label><input name="gross" type="number" required value="8000" min="0" class="pay-input" oninput="calcNomina()"></div>
+          <div><label class="pay-label">Horas Extras (cant.)</label><input name="overtimeHours" type="number" value="0" min="0" step="0.5" class="pay-input"></div>
+          <div><label class="pay-label">Pago Hrs Extras (MXN)</label><input name="overtimePay" type="number" value="0" min="0" class="pay-input" oninput="calcNomina()"></div>
+          <div><label class="pay-label">Bono Asistencia (MXN)</label><input name="attendanceBonus" type="number" value="0" min="0" class="pay-input" oninput="calcNomina()"></div>
+          <div><label class="pay-label">Bono Puntualidad (MXN)</label><input name="punctualityBonus" type="number" value="0" min="0" class="pay-input" oninput="calcNomina()"></div>
+          <div><label class="pay-label">Otros Ingresos (MXN)</label><input name="otroIngreso" type="number" value="0" min="0" class="pay-input" oninput="calcNomina()"></div>
+        </div>
+        <div style="margin-top:8px;padding:8px 12px;background:rgba(79,209,149,0.1);border-radius:8px;display:flex;justify-content:space-between;">
+          <span style="color:#4fd195;font-size:0.82rem;">TOTAL PERCEPCIONES:</span><strong id="payTP" style="color:#4fd195;">$0.00</strong>
+        </div>
+      </div>
+      <div class="pay-section">
+        <h4>\uD83D\uDD34 Deducciones (IMSS / ISR / INFONAVIT / FONACOT)</h4>
+        <div class="pay-grid">
+          <div><label class="pay-label">IMSS Trabajador (MXN)</label><input name="imssEmployee" type="number" value="0" min="0" class="pay-input" oninput="calcNomina()"></div>
+          <div><label class="pay-label">IMSS Patr\u00f3n (MXN)</label><input name="imssEmployer" type="number" value="0" min="0" class="pay-input"></div>
+          <div><label class="pay-label">ISR Retenido (MXN)</label><input name="isr" type="number" value="0" min="0" class="pay-input" oninput="calcNomina()"></div>
+          <div><label class="pay-label">INFONAVIT (MXN)</label><input name="infonavit" type="number" value="0" min="0" class="pay-input" oninput="calcNomina()"></div>
+          <div><label class="pay-label">FONACOT (MXN)</label><input name="fonacot" type="number" value="0" min="0" class="pay-input" oninput="calcNomina()"></div>
+          <div><label class="pay-label">Otras Deducciones (MXN)</label><input name="otraDeduccion" type="number" value="0" min="0" class="pay-input" oninput="calcNomina()"></div>
+        </div>
+        <div style="margin-top:8px;padding:8px 12px;background:rgba(255,101,119,0.1);border-radius:8px;display:flex;justify-content:space-between;">
+          <span style="color:#ff6577;font-size:0.82rem;">TOTAL DEDUCCIONES:</span><strong id="payTD" style="color:#ff6577;">$0.00</strong>
+        </div>
+      </div>
+      <div class="pay-section">
+        <h4>\uD83D\uDD50 Checadas de Reloj</h4>
+        <div id="checadasBox">
+          <div class="checadas-row"><input type="datetime-local" name="ch_0" class="pay-input" style="flex:1;"><select name="ch_0_t" class="pay-input" style="width:110px;"><option value="ENTRADA">Entrada</option><option value="SALIDA">Salida</option></select></div>
+        </div>
+        <button type="button" onclick="addPayChecada()" style="margin-top:6px;background:rgba(255,255,255,0.05);color:var(--muted);border:1px dashed rgba(255,255,255,0.2);padding:7px 14px;border-radius:8px;cursor:pointer;width:100%;font-size:0.82rem;">+ Agregar Checada</button>
+      </div>
+      <div class="pay-section">
+        <h4>\uD83D\uDCCB Resumen Final</h4>
+        <div style="padding:14px;background:rgba(212,168,78,0.1);border-radius:10px;border:1px solid rgba(212,168,78,0.3);margin-bottom:10px;">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:var(--muted);">Percepciones:</span><strong id="payTP2" style="color:#4fd195;">$0.00</strong></div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:var(--muted);">Deducciones:</span><strong id="payTD2" style="color:#ff6577;">$0.00</strong></div>
+          <div style="display:flex;justify-content:space-between;border-top:1px solid rgba(212,168,78,0.3);padding-top:8px;"><span style="font-weight:bold;">NETO A PAGAR:</span><strong id="payNeto" style="color:var(--gold);font-size:1.1rem;">$0.00</strong></div>
+        </div>
+        <div style="margin-bottom:8px;"><label class="pay-label">Notas / Observaciones</label><textarea name="notes" rows="2" placeholder="Vacaciones, bonos especiales, etc." class="pay-input" style="resize:vertical;"></textarea></div>
+        <div><label class="pay-label">Estado de Pago</label><select name="status" class="pay-input"><option value="DRAFT">Borrador (DRAFT)</option><option value="APPROVED">Aprobado (APPROVED)</option><option value="PAID">Pagado (PAID)</option></select></div>
+      </div>
+      <button class="primary" style="width:100%;padding:13px;background:var(--gold);color:#171106;font-weight:bold;font-size:0.95rem;">\uD83D\uDCBE Guardar Recibo de N\u00f3mina</button>
+    </form>
+  `);
+
+  window.calcNomina = function() {
+    const g = n => parseFloat(document.querySelector(`[name="${n}"]`)?.value || 0);
+    const tp = g('gross') + g('overtimePay') + g('attendanceBonus') + g('punctualityBonus') + g('otroIngreso');
+    const td = g('imssEmployee') + g('isr') + g('infonavit') + g('fonacot') + g('otraDeduccion');
+    const neto = tp - td;
+    const fmt = n => '$' + n.toLocaleString('es-MX', {minimumFractionDigits:2,maximumFractionDigits:2});
+    ['payTP','payTP2'].forEach(id => { const el=document.getElementById(id); if(el) el.textContent=fmt(tp); });
+    ['payTD','payTD2'].forEach(id => { const el=document.getElementById(id); if(el) el.textContent=fmt(td); });
+    const ne = document.getElementById('payNeto'); if(ne) ne.textContent=fmt(neto);
+  };
+  calcNomina();
+
+  let chCount = 1;
+  window.addPayChecada = function() {
+    const box = document.getElementById('checadasBox');
+    const row = document.createElement('div');
+    row.className = 'checadas-row';
+    row.innerHTML = `<input type="datetime-local" name="ch_${chCount}" class="pay-input" style="flex:1;"><select name="ch_${chCount}_t" class="pay-input" style="width:110px;"><option value="ENTRADA">Entrada</option><option value="SALIDA">Salida</option></select><button type="button" onclick="this.parentElement.remove()" style="background:rgba(255,101,119,0.15);color:#ff6577;border:none;padding:7px 11px;border-radius:8px;cursor:pointer;">✕</button>`;
+    box.append(row); chCount++;
+  };
+
+  document.getElementById('payrollFormNew').onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const g = name => parseFloat(fd.get(name) || 0);
+    const gross = g('gross'), overtimePay = g('overtimePay'), attendanceBonus = g('attendanceBonus'),
+          punctualityBonus = g('punctualityBonus'), otroIngreso = g('otroIngreso'),
+          imssEmployee = g('imssEmployee'), imssEmployer = g('imssEmployer'), isr = g('isr'),
+          infonavit = g('infonavit'), fonacot = g('fonacot'), otraDeduccion = g('otraDeduccion');
+    const tp = gross + overtimePay + attendanceBonus + punctualityBonus + otroIngreso;
+    const td = imssEmployee + isr + infonavit + fonacot + otraDeduccion;
+    const net = tp - td;
+    const timeEntries = [];
+    for(let i=0;i<chCount+2;i++){const v=fd.get(`ch_${i}`);const t=fd.get(`ch_${i}_t`);if(v)timeEntries.push({timestamp:v,type:t||'ENTRADA'});}
+    const body = {
+      employeeId:fd.get('employeeId'), periodStart:fd.get('periodStart'), periodEnd:fd.get('periodEnd'),
+      gross, net, status:fd.get('status'), overtimeHours:g('overtimeHours'), overtimePay,
+      attendanceBonus, punctualityBonus, imssEmployee, imssEmployer, isr, infonavit, fonacot,
+      otherDeductions:{otros:otraDeduccion}, timeEntries, notes:fd.get('notes')||''
+    };
+    try {
+      const res = await fetch(API+'/v1/payroll',{method:'POST',headers:headers(),body:JSON.stringify(body)});
+      if(res.ok){document.querySelector('.modal').remove();load();}
+      else{const d=await res.json();alert('Error: '+(d.error||'Intenta de nuevo.'));}
+    } catch(err){alert('Error de conexión: '+err.message);}
+  };
+}
+
+async function loadJsPDF() {
+  if (window.jspdf) return;
+  await new Promise(r => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+    s.onload = r; document.head.append(s);
+  });
+}
+
+window.downloadPayrollPDF = async function(id) {
+  const p = payrolls.find(x => x.id === id);
+  if (!p) { alert('Recibo no encontrado.'); return; }
+  await loadJsPDF();
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation:'portrait', unit:'mm', format:'letter' });
+  const W = 216, H = 279, M = 12;
+  const fmt = n => '$' + Number(n||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+  // Header dark bg
+  doc.setFillColor(15,17,22); doc.rect(0,0,W,52,'F');
+  doc.setFillColor(212,168,78); doc.rect(0,0,4,52,'F');
+
+  // Logo area
+  doc.setFillColor(212,168,78); doc.circle(26,25,13,'F');
+  doc.setFillColor(15,17,22); doc.circle(26,25,11,'F');
+  doc.setTextColor(212,168,78); doc.setFont('helvetica','bold'); doc.setFontSize(7);
+  doc.text('HTJ',26,22,{align:'center'}); doc.setFontSize(5); doc.text('HOTEL',26,26,{align:'center'});
+
+  // Company name
+  doc.setTextColor(255,255,255); doc.setFontSize(13); doc.setFont('helvetica','bold');
+  doc.text('HTJ HOSPEDAJE TAXI JU\u00c1REZ', 44, 16);
+  doc.setFontSize(7.5); doc.setFont('helvetica','normal'); doc.setTextColor(170,170,170);
+  doc.text('Recibo de N\u00f3mina Oficial', 44, 22);
+  doc.text('Ciudad Ju\u00e1rez, Chihuahua, M\u00e9xico', 44, 27);
+  doc.text('Sistema HTJ OPS v2 — Generado el ' + new Date().toLocaleDateString('es-MX'), 44, 32);
+
+  // Folio box
+  doc.setFillColor(25,27,36); doc.roundedRect(132,8,72,36,3,3,'F');
+  doc.setTextColor(212,168,78); doc.setFont('helvetica','bold'); doc.setFontSize(7);
+  doc.text('RECIBO DE N\u00d3MINA',168,14,{align:'center'});
+  doc.setFontSize(8); doc.setTextColor(255,255,255);
+  doc.text('No. '+p.id.substring(0,8).toUpperCase(),168,21,{align:'center'});
+  doc.setFontSize(7); doc.setTextColor(160,160,160); doc.setFont('helvetica','normal');
+  doc.text('Estado: '+(p.status==='PAID'?'\u2713 PAGADO':p.status==='APPROVED'?'APROBADO':'BORRADOR'),168,27,{align:'center'});
+  doc.text('Fecha: '+new Date().toLocaleDateString('es-MX'),168,33,{align:'center'});
+
+  // Section: Datos Empleado
+  let y = 57;
+  doc.setFillColor(212,168,78); doc.rect(M,y,W-M*2,7,'F');
+  doc.setTextColor(15,17,22); doc.setFont('helvetica','bold'); doc.setFontSize(8);
+  doc.text('DATOS DEL EMPLEADO', M+3, y+5); y+=8;
+  doc.setFillColor(244,244,248); doc.rect(M,y,W-M*2,30,'F');
+  const c1=M+3,c2=80,c3=140,lh=7;
+  doc.setFont('helvetica','bold'); doc.setFontSize(6.5); doc.setTextColor(120,120,120);
+  doc.text('NOMBRE COMPLETO:',c1,y+lh); doc.text('N\u00b0 RELOJ:',c2,y+lh); doc.text('PUESTO / ROL:',c3,y+lh);
+  doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(15,17,22);
+  doc.text((p.employeeName||'').toUpperCase(),c1,y+lh*2);
+  doc.setTextColor(212,168,78); doc.text('#'+(p.clockNumber||'----'),c2,y+lh*2);
+  doc.setTextColor(15,17,22); doc.text(p.employeeRole||'',c3,y+lh*2);
+  doc.setFont('helvetica','bold'); doc.setFontSize(6.5); doc.setTextColor(120,120,120);
+  doc.text('CORREO:',c1,y+lh*3); doc.text('PERIODO INICIO:',c2,y+lh*3); doc.text('PERIODO FIN:',c3,y+lh*3);
+  doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(15,17,22);
+  doc.text(p.employeeEmail||'',c1,y+lh*3.7);
+  doc.text(new Date(p.periodStart).toLocaleDateString('es-MX'),c2,y+lh*3.7);
+  doc.text(new Date(p.periodEnd).toLocaleDateString('es-MX'),c3,y+lh*3.7); y+=33;
+
+  // Percepciones & Deducciones side by side
+  const hw=(W-M*2-5)/2;
+  doc.setFillColor(39,174,96); doc.rect(M,y,hw,7,'F');
+  doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(7.5);
+  doc.text('PERCEPCIONES',M+3,y+5);
+  doc.setFillColor(200,50,50); doc.rect(M+hw+5,y,hw,7,'F');
+  doc.text('DEDUCCIONES',M+hw+8,y+5); y+=8;
+
+  const PR=[
+    ['Salario Base',fmt(p.gross)],
+    ['Horas Extras ('+(p.overtimeHours||0)+' hrs)',fmt(p.overtimePay)],
+    ['Bono de Asistencia',fmt(p.attendanceBonus)],
+    ['Bono de Puntualidad',fmt(p.punctualityBonus)]
+  ];
+  const DR=[
+    ['IMSS (Cuota Trabajador)',fmt(p.imssEmployee)],
+    ['ISR Retenido',fmt(p.isr)],
+    ['INFONAVIT',fmt(p.infonavit)],
+    ['FONACOT',fmt(p.fonacot)]
+  ];
+  const maxR=Math.max(PR.length,DR.length), rh=7;
+  for(let i=0;i<maxR;i++){
+    doc.setFillColor(i%2===0?245:255,i%2===0?250:255,i%2===0?247:255); doc.rect(M,y+i*rh,hw,rh,'F');
+    doc.setFillColor(i%2===0?250:255,i%2===0?245:255,i%2===0?245:255); doc.rect(M+hw+5,y+i*rh,hw,rh,'F');
+    if(PR[i]){doc.setFont('helvetica','normal');doc.setFontSize(7);doc.setTextColor(15,17,22);doc.text(PR[i][0],M+3,y+i*rh+5);doc.setFont('helvetica','bold');doc.setTextColor(39,174,96);doc.text(PR[i][1],M+hw-3,y+i*rh+5,{align:'right'});}
+    if(DR[i]){doc.setFont('helvetica','normal');doc.setFontSize(7);doc.setTextColor(15,17,22);doc.text(DR[i][0],M+hw+8,y+i*rh+5);doc.setFont('helvetica','bold');doc.setTextColor(200,50,50);doc.text(DR[i][1],W-M-3,y+i*rh+5,{align:'right'});}
+  }
+  y+=maxR*rh;
+  const tP=(p.gross||0)+(p.overtimePay||0)+(p.attendanceBonus||0)+(p.punctualityBonus||0);
+  const tD=(p.imssEmployee||0)+(p.isr||0)+(p.infonavit||0)+(p.fonacot||0);
+  doc.setFillColor(39,174,96); doc.rect(M,y,hw,8,'F');
+  doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(7.5);
+  doc.text('TOTAL PERCEPCIONES:',M+3,y+5.5); doc.text(fmt(tP),M+hw-3,y+5.5,{align:'right'});
+  doc.setFillColor(200,50,50); doc.rect(M+hw+5,y,hw,8,'F');
+  doc.text('TOTAL DEDUCCIONES:',M+hw+8,y+5.5); doc.text(fmt(tD),W-M-3,y+5.5,{align:'right'}); y+=12;
+
+  // NETO
+  doc.setFillColor(212,168,78); doc.roundedRect(M,y,W-M*2,16,3,3,'F');
+  doc.setTextColor(15,17,22); doc.setFont('helvetica','bold'); doc.setFontSize(11);
+  doc.text('NETO A PAGAR:',M+5,y+10);
+  doc.setFontSize(14); doc.text(fmt(p.net),W-M-5,y+11,{align:'right'}); y+=20;
+
+  // Checadas
+  const entries=Array.isArray(p.time_entries)?p.time_entries:[];
+  if(entries.length>0){
+    doc.setFillColor(50,80,140); doc.rect(M,y,W-M*2,7,'F');
+    doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(7.5);
+    doc.text('REGISTRO DE CHECADAS',M+3,y+5); y+=8;
+    doc.setFillColor(235,235,242); doc.rect(M,y,W-M*2,6,'F');
+    doc.setTextColor(100,100,100); doc.setFont('helvetica','bold'); doc.setFontSize(7);
+    doc.text('#',M+3,y+4.2); doc.text('FECHA Y HORA',M+12,y+4.2); doc.text('TIPO',M+90,y+4.2); y+=6;
+    entries.forEach((entry,i)=>{
+      const bg=i%2===0?[248,248,252]:[255,255,255];
+      doc.setFillColor(...bg); doc.rect(M,y,W-M*2,6,'F');
+      doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(15,17,22);
+      doc.text(String(i+1),M+3,y+4);
+      doc.text(entry.timestamp?new Date(entry.timestamp).toLocaleString('es-MX'):'-',M+12,y+4);
+      if(entry.type==='ENTRADA')doc.setTextColor(39,174,96); else doc.setTextColor(200,50,50);
+      doc.setFont('helvetica','bold'); doc.text(entry.type||'-',M+90,y+4); y+=6;
+    }); y+=4;
+  }
+
+  // Notas
+  if(p.notes){
+    doc.setFillColor(244,244,248); doc.rect(M,y,W-M*2,16,'F');
+    doc.setTextColor(100,100,100); doc.setFont('helvetica','bold'); doc.setFontSize(7);
+    doc.text('NOTAS:',M+3,y+5);
+    doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(15,17,22);
+    doc.text(doc.splitTextToSize(p.notes,W-M*2-8),M+3,y+10); y+=20;
+  }
+
+  // Firmas
+  y=Math.max(y,228);
+  doc.setDrawColor(180,180,180);
+  [M,M+74,M+148].forEach(x=>doc.line(x,y,x+56,y));
+  doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(130,130,130);
+  doc.text('FIRMA EMPLEADO',M+28,y+4,{align:'center'});
+  doc.text('FIRMA PATR\u00d3N / GERENTE',M+102,y+4,{align:'center'});
+  doc.text('SELLO EMPRESA',M+176,y+4,{align:'center'});
+
+  // Footer
+  doc.setFillColor(15,17,22); doc.rect(0,H-10,W,10,'F');
+  doc.setTextColor(212,168,78); doc.setFont('helvetica','bold'); doc.setFontSize(6);
+  doc.text('HTJ HOSPEDAJE TAXI JU\u00c1REZ — Documento oficial generado por Sistema HTJ OPS v2 — Ciudad Ju\u00e1rez, Chih.',W/2,H-4,{align:'center'});
+
+  doc.save(`Nomina_${(p.employeeName||'empleado').replace(/ /g,'_')}_${p.periodStart}.pdf`);
+};
