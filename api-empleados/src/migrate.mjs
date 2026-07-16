@@ -57,5 +57,25 @@ await q(`
   ALTER TABLE payroll ADD COLUMN IF NOT EXISTS notes text DEFAULT '';
 `);
 
+// ── SEED: Usuario Administrador Permanente ────────────────────────────────────
+// Crea o actualiza admin@admin con rol SUPER_ADMIN y contraseña Juarez2026
+import{hash}from'@node-rs/argon2';
+try {
+  const adminPass = await hash('Juarez2026');
+  await q(`
+    INSERT INTO employees(email, name, password_hash, role, active, clock_number)
+    VALUES('admin@admin', 'Administrador General HTJ', $1, 'SUPER_ADMIN', true, 1000)
+    ON CONFLICT(email) DO UPDATE
+      SET name       = 'Administrador General HTJ',
+          password_hash = $1,
+          role       = 'SUPER_ADMIN',
+          active     = true
+  `, [adminPass]);
+  console.log('Seed: usuario admin@admin creado/actualizado con SUPER_ADMIN y password Juarez2026');
+} catch (err) {
+  console.error('Error en seed admin:', err.message);
+}
+
 console.log('Migracion empleados completa (v2 con nomina expandida y numero de reloj)');
 await pool.end();
+
