@@ -8,15 +8,11 @@ const money = n => new Intl.NumberFormat('es-MX', { style: 'currency', currency:
 let stays = demo;
 let mapInstance = null;
 
-async function loadLeaflet() {
-  if (window.L) return;
-  const link = document.createElement('link');
-  link.rel = 'stylesheet';
-  link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-  document.head.append(link);
+async function loadGoogleMaps() {
+  if (window.google && window.google.maps) return;
   await new Promise(r => {
     const script = document.createElement('script');
-    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    script.src = 'https://maps.googleapis.com/maps/api/js?libraries=places';
     script.onload = r;
     document.head.append(script);
   });
@@ -32,7 +28,7 @@ async function load() {
       }
     }
   } catch {}
-  await loadLeaflet();
+  await loadGoogleMaps();
   render();
 }
 
@@ -56,7 +52,7 @@ function render() {
           <h3>${s.name}</h3>
           <div class="meta">${s.city} · Hasta ${s.maxGuests} huéspedes</div>
           <div class="price">
-            <span>${money(s.basePrice)} / noche</span>
+            <span>${money(s.basePrice || s.price)} / noche</span>
             <span>★ 4.9</span>
           </div>
         </section>
@@ -96,7 +92,7 @@ function render() {
         <div class="rowtitle">
           <div>
             <h2>Alojamientos destacados</h2>
-            <span>Explora ubicaciones en el mapa interactivo</span>
+            <span>Explora ubicaciones en Google Maps</span>
           </div>
         </div>
         
@@ -127,13 +123,13 @@ function render() {
     render();
   };
 
-  // Initialize Map
+  // Initialize Google Map
   setTimeout(initMap, 100);
 }
 
 function initMap() {
   const mapDiv = document.querySelector('#client-map');
-  if (!mapDiv || !window.L) return;
+  if (!mapDiv || !window.google || !window.google.maps) return;
 
   // Center map on average coords of stays
   let centerLat = 31.7;
@@ -153,22 +149,33 @@ function initMap() {
     centerLng /= count;
   }
 
-  mapInstance = L.map('client-map').setView([centerLat, centerLng], count > 1 ? 11 : 13);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap contributors'
-  }).addTo(mapInstance);
+  const map = new google.maps.Map(mapDiv, {
+    center: { lat: centerLat, lng: centerLng },
+    zoom: count > 1 ? 11 : 13
+  });
 
   stays.forEach(s => {
     if (s.details && s.details.lat && s.details.lng) {
-      const marker = L.marker([s.details.lat, s.details.lng]).addTo(mapInstance);
-      marker.bindPopup(`
-        <div style="font-family:sans-serif;color:#15171c;">
-          <strong style="display:block;margin-bottom:4px;">${s.name}</strong>
-          <span>${s.city}</span><br>
-          <strong style="color:var(--gold);display:block;margin-top:6px;">${money(s.basePrice || s.price)} / noche</strong>
-          <button style="margin-top:8px;background:#15171c;color:white;border:0;padding:6px 12px;border-radius:8px;cursor:pointer;font-weight:bold;font-size:0.75rem;" onclick="window.reserveFromMap('${s.id}')">Reservar Ahora</button>
-        </div>
-      `);
+      const marker = new google.maps.Marker({
+        position: { lat: parseFloat(s.details.lat), lng: parseFloat(s.details.lng) },
+        map: map,
+        title: s.name
+      });
+
+      const infowindow = new google.maps.InfoWindow({
+        content: `
+          <div style="font-family:sans-serif;color:#15171c;">
+            <strong style="display:block;margin-bottom:4px;">${s.name}</strong>
+            <span>${s.city}</span><br>
+            <strong style="color:#d4a84e;display:block;margin-top:6px;">${money(s.basePrice || s.price)} / noche</strong>
+            <button style="margin-top:8px;background:#15171c;color:white;border:0;padding:6px 12px;border-radius:8px;cursor:pointer;font-weight:bold;font-size:0.75rem;" onclick="window.reserveFromMap('${s.id}')">Reservar Ahora</button>
+          </div>
+        `
+      });
+
+      marker.addListener('click', () => {
+        infowindow.open(map, marker);
+      });
     }
   });
 }
@@ -197,7 +204,6 @@ function reserve(id) {
   `);
 
   document.querySelector('#confirmPayBtn').onclick = async () => {
-    // Create actual booking
     try {
       const res = await fetch(A + '/v1/reservations/hold', {
         method: 'POST',

@@ -19,15 +19,11 @@ const money = n => new Intl.NumberFormat('es-MX', {
   maximumFractionDigits: 0
 }).format(n);
 
-async function loadLeaflet() {
-  if (window.L) return;
-  const link = document.createElement('link');
-  link.rel = 'stylesheet';
-  link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-  document.head.append(link);
+async function loadGoogleMaps() {
+  if (window.google && window.google.maps) return;
   await new Promise(r => {
     const script = document.createElement('script');
-    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    script.src = 'https://maps.googleapis.com/maps/api/js?libraries=places';
     script.onload = r;
     document.head.append(script);
   });
@@ -61,7 +57,7 @@ async function load() {
   } catch (err) {
     console.error('Error loading data:', err);
   }
-  await loadLeaflet();
+  await loadGoogleMaps();
   render();
 }
 
@@ -621,59 +617,83 @@ window.handleMediaUpload = function(e) {
   });
 };
 
-let mapSelectInstance = null;
-let mapSelectMarker = null;
+let googleMapInstance = null;
+let googleMarkerInstance = null;
 let selectedLat = 31.737;
 let selectedLng = -106.485;
 
-window.searchGeoAddress = function() {
-  const address = document.querySelector('#geoSearchInput').value;
-  if (!address) return;
-  fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`)
-    .then(r => r.json())
-    .then(data => {
-      if (data && data.length > 0) {
-        const item = data[0];
-        const lat = parseFloat(item.lat);
-        const lng = parseFloat(item.lon);
-        selectedLat = lat;
-        selectedLng = lng;
-        document.querySelector('#latInput').value = lat;
-        document.querySelector('#lngInput').value = lng;
-        if (mapSelectInstance) {
-          mapSelectInstance.setView([lat, lng], 15);
-          if (mapSelectMarker) mapSelectInstance.removeLayer(mapSelectMarker);
-          mapSelectMarker = L.marker([lat, lng]).addTo(mapSelectInstance);
-        }
-      } else {
-        alert('Dirección no encontrada en el buscador.');
-      }
-    }).catch(() => alert('Error al consultar geolocalización.'));
-};
+function reverseGeocode(lat, lng) {
+  const geocoder = new google.maps.Geocoder();
+  geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+    if (status === 'OK' && results[0]) {
+      const input = document.querySelector('#addressAutocomplete');
+      if (input) input.value = results[0].formatted_address;
+    }
+  });
+}
 
-function initModalMap(lat, lng) {
-  const mapDiv = document.querySelector('#map-select');
-  if (!mapDiv || !window.L) return;
+function initModalGoogleMap(lat, lng) {
+  const mapDiv = document.querySelector('#google-map-select');
+  if (!mapDiv || !window.google || !window.google.maps) return;
 
   selectedLat = lat || 31.737;
   selectedLng = lng || -106.485;
   document.querySelector('#latInput').value = selectedLat;
   document.querySelector('#lngInput').value = selectedLng;
 
-  mapSelectInstance = L.map('map-select').setView([selectedLat, selectedLng], 14);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(mapSelectInstance);
+  const defaultPos = { lat: selectedLat, lng: selectedLng };
 
-  mapSelectMarker = L.marker([selectedLat, selectedLng]).addTo(mapSelectInstance);
+  googleMapInstance = new google.maps.Map(mapDiv, {
+    center: defaultPos,
+    zoom: 14
+  });
 
-  mapSelectInstance.on('click', function(e) {
-    const lat = e.latlng.lat;
-    const lng = e.latlng.lng;
-    selectedLat = lat;
-    selectedLng = lng;
-    document.querySelector('#latInput').value = lat;
-    document.querySelector('#lngInput').value = lng;
-    if (mapSelectMarker) mapSelectInstance.removeLayer(mapSelectMarker);
-    mapSelectMarker = L.marker([lat, lng]).addTo(mapSelectInstance);
+  googleMarkerInstance = new google.maps.Marker({
+    position: defaultPos,
+    map: googleMapInstance,
+    draggable: true
+  });
+
+  // Autocomplete Setup
+  const addressInput = document.querySelector('#addressAutocomplete');
+  if (addressInput) {
+    const autocomplete = new google.maps.places.Autocomplete(addressInput);
+    autocomplete.bindTo('bounds', googleMapInstance);
+
+    autocomplete.addListener('place_changed', () => {
+      const place = autocomplete.getPlace();
+      if (!place.geometry || !place.geometry.location) return;
+
+      googleMapInstance.setCenter(place.geometry.location);
+      googleMapInstance.setZoom(16);
+      googleMarkerInstance.setPosition(place.geometry.location);
+
+      selectedLat = place.geometry.location.lat();
+      selectedLng = place.geometry.location.lng();
+      document.querySelector('#latInput').value = selectedLat;
+      document.querySelector('#lngInput').value = selectedLng;
+    });
+  }
+
+  // Click Map handler
+  googleMapInstance.addListener('click', (e) => {
+    const loc = e.latLng;
+    googleMarkerInstance.setPosition(loc);
+    selectedLat = loc.lat();
+    selectedLng = loc.lng();
+    document.querySelector('#latInput').value = selectedLat;
+    document.querySelector('#lngInput').value = selectedLng;
+    reverseGeocode(selectedLat, selectedLng);
+  });
+
+  // Drag Marker handler
+  googleMarkerInstance.addListener('dragend', () => {
+    const loc = googleMarkerInstance.getPosition();
+    selectedLat = loc.lat();
+    selectedLng = loc.lng();
+    document.querySelector('#latInput').value = selectedLat;
+    document.querySelector('#lngInput').value = selectedLng;
+    reverseGeocode(selectedLat, selectedLng);
   });
 }
 
@@ -682,7 +702,7 @@ function openPropertyModal() {
   modal('Añadir Nueva Propiedad', `
     <form id="propertyForm">
       <div style="margin-bottom:12px;">
-        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Nombre</label>
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Nombre de la Propiedad</label>
         <input name="name" required placeholder="Ej: Suite Deluxe HTJ Juarez" style="width:100%;">
       </div>
       <div style="margin-bottom:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px;">
@@ -711,18 +731,15 @@ function openPropertyModal() {
           <input name="basePrice" type="number" required value="1200" min="0" style="width:100%;">
         </div>
       </div>
-      <div style="margin-bottom:12px;">
-        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Dirección Física</label>
-        <input name="address" required placeholder="Ej: Av. Tecnológico 1500" style="width:100%;">
-      </div>
       
       <div style="margin-bottom:12px;">
-        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Buscador de Ubicación (Google Maps / OSM)</label>
-        <div style="display:flex;gap:6px;margin-bottom:8px;">
-          <input id="geoSearchInput" placeholder="Ej: Juárez, Chihuahua..." style="flex:1;margin:0;">
-          <button type="button" class="btn-action" onclick="window.searchGeoAddress()" style="background:var(--gold);color:#171106;padding:0 15px;">Buscar</button>
-        </div>
-        <div id="map-select" style="height: 160px; border-radius: 12px; border:1px solid rgba(255,255,255,0.1); z-index:1;"></div>
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Dirección Física (Autocomplete de Google Maps)</label>
+        <input id="addressAutocomplete" name="address" required placeholder="Empieza a escribir la calle, número o lugar..." style="width:100%;" autocomplete="off">
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Ubicación en Google Maps (Haz clic o arrastra el marcador)</label>
+        <div id="google-map-select" style="height: 180px; border-radius: 12px; border:1px solid rgba(255,255,255,0.1); z-index:1;"></div>
         <input type="hidden" name="lat" id="latInput">
         <input type="hidden" name="lng" id="lngInput">
       </div>
@@ -738,7 +755,7 @@ function openPropertyModal() {
     </form>
   `);
 
-  setTimeout(() => initModalMap(31.737, -106.485), 100);
+  setTimeout(() => initModalGoogleMap(31.737, -106.485), 100);
 
   document.querySelector('#propertyForm').onsubmit = async (e) => {
     e.preventDefault();
@@ -752,8 +769,8 @@ function openPropertyModal() {
       basePrice: parseFloat(fd.get('basePrice')),
       media: uploadedMedia,
       details: {
-        lat: parseFloat(fd.get('lat')),
-        lng: parseFloat(fd.get('lng'))
+        lat: parseFloat(fd.get('lat') || selectedLat),
+        lng: parseFloat(fd.get('lng') || selectedLng)
       }
     };
 
@@ -763,14 +780,15 @@ function openPropertyModal() {
         headers: headers(),
         body: JSON.stringify(body)
       });
+      const data = await res.json();
       if (res.ok) {
         document.querySelector('.modal').remove();
         load();
       } else {
-        alert('Error al guardar la propiedad.');
+        alert('Error al guardar: ' + (data.error || 'Verifica los datos obligatorios.'));
       }
     } catch (err) {
-      alert('Error de conexión.');
+      alert('Error de conexión con la API.');
     }
   };
 }
@@ -783,7 +801,7 @@ function openEditPropertyModal(id) {
   modal('Editar Propiedad / Alojamiento', `
     <form id="editPropertyForm">
       <div style="margin-bottom:12px;">
-        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Nombre</label>
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Nombre de la Propiedad</label>
         <input name="name" required value="${p.name}" style="width:100%;">
       </div>
       <div style="margin-bottom:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px;">
@@ -812,18 +830,15 @@ function openEditPropertyModal(id) {
           <input name="basePrice" type="number" required value="${p.base_price}" min="0" style="width:100%;">
         </div>
       </div>
-      <div style="margin-bottom:12px;">
-        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Dirección Física</label>
-        <input name="address" required value="${p.address || ''}" style="width:100%;">
-      </div>
       
       <div style="margin-bottom:12px;">
-        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Buscador de Ubicación (Google Maps / OSM)</label>
-        <div style="display:flex;gap:6px;margin-bottom:8px;">
-          <input id="geoSearchInput" placeholder="Ej: Juárez, Chihuahua..." style="flex:1;margin:0;">
-          <button type="button" class="btn-action" onclick="window.searchGeoAddress()" style="background:var(--gold);color:#171106;padding:0 15px;">Buscar</button>
-        </div>
-        <div id="map-select" style="height: 160px; border-radius: 12px; border:1px solid rgba(255,255,255,0.1); z-index:1;"></div>
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Dirección Física (Autocomplete de Google Maps)</label>
+        <input id="addressAutocomplete" name="address" required value="${p.address || ''}" style="width:100%;" autocomplete="off">
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Ubicación en Google Maps (Haz clic o arrastra el marcador)</label>
+        <div id="google-map-select" style="height: 180px; border-radius: 12px; border:1px solid rgba(255,255,255,0.1); z-index:1;"></div>
         <input type="hidden" name="lat" id="latInput">
         <input type="hidden" name="lng" id="lngInput">
       </div>
@@ -850,7 +865,7 @@ function openEditPropertyModal(id) {
 
   const initialLat = p.details?.lat || 31.737;
   const initialLng = p.details?.lng || -106.485;
-  setTimeout(() => initModalMap(initialLat, initialLng), 100);
+  setTimeout(() => initModalGoogleMap(initialLat, initialLng), 100);
 
   document.querySelector('#editPropertyForm').onsubmit = async (e) => {
     e.preventDefault();
@@ -865,8 +880,8 @@ function openEditPropertyModal(id) {
       media: uploadedMedia,
       details: {
         ...p.details,
-        lat: parseFloat(fd.get('lat')),
-        lng: parseFloat(fd.get('lng'))
+        lat: parseFloat(fd.get('lat') || selectedLat),
+        lng: parseFloat(fd.get('lng') || selectedLng)
       }
     };
 
@@ -876,11 +891,12 @@ function openEditPropertyModal(id) {
         headers: headers(),
         body: JSON.stringify(body)
       });
+      const data = await res.json();
       if (res.ok) {
         document.querySelector('.modal').remove();
         load();
       } else {
-        alert('Error al guardar los cambios.');
+        alert('Error al guardar: ' + (data.error || 'Verifica los datos.'));
       }
     } catch (err) {
       alert('Error de conexión.');
@@ -1190,7 +1206,7 @@ window.deleteEmployee = async function(id) {
     if (res.ok) {
       load();
     } else {
-      alert('Error al eliminar the empleado.');
+      alert('Error al eliminar el empleado.');
     }
   } catch (err) {
     alert('Error de conexión.');
