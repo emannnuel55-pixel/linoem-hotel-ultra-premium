@@ -844,7 +844,7 @@ function openPropertyModal() {
   };
 }
 
-function openEditPropertyModal(id) {
+window.openEditPropertyModal = function(id) {
   const p = properties.find(x => x.id === id);
   if (!p) return;
 
