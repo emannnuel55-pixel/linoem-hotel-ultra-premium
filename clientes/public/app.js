@@ -8,11 +8,15 @@ const money = n => new Intl.NumberFormat('es-MX', { style: 'currency', currency:
 let stays = demo;
 let mapInstance = null;
 
-async function loadGoogleMaps() {
-  if (window.google && window.google.maps) return;
+async function loadLeaflet() {
+  if (window.L) return;
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+  document.head.append(link);
   await new Promise(r => {
     const script = document.createElement('script');
-    script.src = 'https://maps.googleapis.com/maps/api/js?libraries=places';
+    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
     script.onload = r;
     document.head.append(script);
   });
@@ -28,7 +32,7 @@ async function load() {
       }
     }
   } catch {}
-  await loadGoogleMaps();
+  await loadLeaflet();
   render();
 }
 
@@ -92,7 +96,7 @@ function render() {
         <div class="rowtitle">
           <div>
             <h2>Alojamientos destacados</h2>
-            <span>Explora ubicaciones en Google Maps</span>
+            <span>Explora ubicaciones en el mapa interactivo</span>
           </div>
         </div>
         
@@ -123,13 +127,13 @@ function render() {
     render();
   };
 
-  // Initialize Google Map
+  // Initialize Map
   setTimeout(initMap, 100);
 }
 
 function initMap() {
   const mapDiv = document.querySelector('#client-map');
-  if (!mapDiv || !window.google || !window.google.maps) return;
+  if (!mapDiv || !window.L) return;
 
   // Center map on average coords of stays
   let centerLat = 31.7;
@@ -149,33 +153,22 @@ function initMap() {
     centerLng /= count;
   }
 
-  const map = new google.maps.Map(mapDiv, {
-    center: { lat: centerLat, lng: centerLng },
-    zoom: count > 1 ? 11 : 13
-  });
+  mapInstance = L.map('client-map').setView([centerLat, centerLng], count > 1 ? 11 : 13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors'
+  }).addTo(mapInstance);
 
   stays.forEach(s => {
     if (s.details && s.details.lat && s.details.lng) {
-      const marker = new google.maps.Marker({
-        position: { lat: parseFloat(s.details.lat), lng: parseFloat(s.details.lng) },
-        map: map,
-        title: s.name
-      });
-
-      const infowindow = new google.maps.InfoWindow({
-        content: `
-          <div style="font-family:sans-serif;color:#15171c;">
-            <strong style="display:block;margin-bottom:4px;">${s.name}</strong>
-            <span>${s.city}</span><br>
-            <strong style="color:#d4a84e;display:block;margin-top:6px;">${money(s.basePrice || s.price)} / noche</strong>
-            <button style="margin-top:8px;background:#15171c;color:white;border:0;padding:6px 12px;border-radius:8px;cursor:pointer;font-weight:bold;font-size:0.75rem;" onclick="window.reserveFromMap('${s.id}')">Reservar Ahora</button>
-          </div>
-        `
-      });
-
-      marker.addListener('click', () => {
-        infowindow.open(map, marker);
-      });
+      const marker = L.marker([parseFloat(s.details.lat), parseFloat(s.details.lng)]).addTo(mapInstance);
+      marker.bindPopup(`
+        <div style="font-family:sans-serif;color:#15171c;">
+          <strong style="display:block;margin-bottom:4px;">${s.name}</strong>
+          <span>${s.city}</span><br>
+          <strong style="color:#d4a84e;display:block;margin-top:6px;">${money(s.basePrice || s.price)} / noche</strong>
+          <button style="margin-top:8px;background:#15171c;color:white;border:0;padding:6px 12px;border-radius:8px;cursor:pointer;font-weight:bold;font-size:0.75rem;" onclick="window.reserveFromMap('${s.id}')">Reservar Ahora</button>
+        </div>
+      `);
     }
   });
 }
