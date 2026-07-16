@@ -1499,15 +1499,19 @@ window.publishProperty = async function(id) {
       method: 'POST',
       headers: headers()
     });
+    const data = await res.json();
     if (res.ok) {
-      alert('¡Propiedad publicada y sincronizada con éxito al portal de huéspedes!');
+      if (data.synced) {
+        alert('✅ ¡Propiedad publicada y sincronizada exitosamente con el portal de huéspedes!');
+      } else {
+        alert('✅ Propiedad marcada como publicada.\n\n⚠️ Sincronización pendiente: Para sincronizar automáticamente con el portal de clientes, ve a Railway → api-empleados → Variables y configura:\n\nCLIENT_API_URL = https://api-clientes-production-6b03.up.railway.app');
+      }
       load();
     } else {
-      const data = await res.json();
       alert('Error al publicar: ' + (data.error || 'Intenta de nuevo.'));
     }
   } catch (err) {
-    alert('Error de red al sincronizar.');
+    alert('Error de red al publicar: ' + err.message);
   }
 };
 
