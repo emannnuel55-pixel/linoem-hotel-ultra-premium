@@ -19,6 +19,20 @@ const money = n => new Intl.NumberFormat('es-MX', {
   maximumFractionDigits: 0
 }).format(n);
 
+async function loadLeaflet() {
+  if (window.L) return;
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+  document.head.append(link);
+  await new Promise(r => {
+    const script = document.createElement('script');
+    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    script.onload = r;
+    document.head.append(script);
+  });
+}
+
 async function load() {
   try {
     const [resDash, resProp, resExp, resUsers, resRes, resEmp, resPay] = await Promise.all([
@@ -47,6 +61,7 @@ async function load() {
   } catch (err) {
     console.error('Error loading data:', err);
   }
+  await loadLeaflet();
   render();
 }
 
@@ -138,26 +153,44 @@ function render() {
                 </tr>
               </thead>
               <tbody>
-                ${properties.length === 0 ? '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--muted)">No hay propiedades creadas. ¡Crea una nueva!</td></tr>' : properties.map(p => `
-                  <tr>
-                    <td><strong>${p.name}</strong><br><small style="color:var(--muted)">${p.address || 'Sin dirección'}</small></td>
-                    <td><span class="badge badge-type">${p.type}</span></td>
-                    <td>${p.city}</td>
-                    <td>${money(p.base_price)} / noche</td>
-                    <td>
-                      <span class="badge ${p.published ? 'badge-published' : 'badge-draft'}">
-                        ${p.published ? '● Publicado' : 'Borrador'}
-                      </span>
-                    </td>
-                    <td>
-                      <div class="actions-group">
-                        <button class="btn-action btn-primary" onclick="openEditPropertyModal('${p.id}', '${p.name}', '${p.type}', '${p.city}', '${p.address || ''}', ${p.max_guests}, ${p.base_price})">Editar</button>
-                        ${p.published ? '' : `<button class="btn-action" style="background:var(--green);color:#0a3a22" onclick="publishProperty('${p.id}')">Sincronizar</button>`}
-                        <button class="btn-action btn-danger" onclick="deleteProperty('${p.id}')">Eliminar</button>
-                      </div>
-                    </td>
-                  </tr>
-                `).join('')}
+                ${properties.length === 0 ? '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--muted)">No hay propiedades creadas. ¡Crea una nueva!</td></tr>' : properties.map(p => {
+                  const firstMedia = p.media && p.media.length > 0 ? p.media[0] : null;
+                  const mediaThumb = firstMedia
+                    ? (firstMedia.type === 'video'
+                        ? `<video src="${firstMedia.url}" style="width:40px;height:40px;border-radius:6px;object-fit:cover;"></video>`
+                        : `<img src="${firstMedia.url}" style="width:40px;height:40px;border-radius:6px;object-fit:cover;">`
+                      )
+                    : `<div style="width:40px;height:40px;border-radius:6px;background:var(--panel2);display:grid;place-items:center;font-size:0.8rem;color:var(--muted)">✦</div>`;
+
+                  return `
+                    <tr>
+                      <td>
+                        <div style="display:flex;align-items:center;gap:12px;">
+                          ${mediaThumb}
+                          <div>
+                            <strong>${p.name}</strong><br>
+                            <small style="color:var(--muted)">${p.address || 'Sin dirección'}</small>
+                          </div>
+                        </div>
+                      </td>
+                      <td><span class="badge badge-type">${p.type}</span></td>
+                      <td>${p.city}</td>
+                      <td>${money(p.base_price)} / noche</td>
+                      <td>
+                        <span class="badge ${p.published ? 'badge-published' : 'badge-draft'}">
+                          ${p.published ? '● Publicado' : 'Borrador'}
+                        </span>
+                      </td>
+                      <td>
+                        <div class="actions-group">
+                          <button class="btn-action btn-primary" onclick="openEditPropertyModal('${p.id}')">Editar</button>
+                          ${p.published ? '' : `<button class="btn-action" style="background:var(--green);color:#0a3a22" onclick="publishProperty('${p.id}')">Sincronizar</button>`}
+                          <button class="btn-action btn-danger" onclick="deleteProperty('${p.id}')">Eliminar</button>
+                        </div>
+                      </td>
+                    </tr>
+                  `;
+                }).join('')}
               </tbody>
             </table>
           </div>
@@ -544,7 +577,7 @@ function render() {
 
   // Attach event handlers
   const addBtn = document.querySelector('#addBtn');
-  if (addBtn) addBtn.onclick = openPropertyModal;
+  if (addBtn) addBtn.onclick = () => openPropertyModal();
 
   const addExpenseBtn = document.querySelector('#addExpenseBtn');
   if (addExpenseBtn) addExpenseBtn.onclick = openExpenseModal;
@@ -564,22 +597,109 @@ window.switchTab = function(tabId) {
   render();
 };
 
+let uploadedMedia = [];
+window.handleMediaUpload = function(e) {
+  const files = Array.from(e.target.files);
+  const preview = document.querySelector('#mediaPreview');
+  preview.innerHTML = '';
+  uploadedMedia = [];
+
+  files.forEach(file => {
+    const reader = new FileReader();
+    reader.onload = function(evt) {
+      const isVideo = file.type.startsWith('video');
+      uploadedMedia.push({ type: isVideo ? 'video' : 'image', url: evt.target.result });
+
+      const thumb = document.createElement('div');
+      thumb.style = 'width:60px;height:60px;border-radius:8px;overflow:hidden;border:1px solid var(--gold);flex-shrink:0;position:relative;';
+      thumb.innerHTML = isVideo
+        ? `<video src="${evt.target.result}" style="width:100%;height:100%;object-fit:cover;"></video>`
+        : `<img src="${evt.target.result}" style="width:100%;height:100%;object-fit:cover;">`;
+      preview.appendChild(thumb);
+    };
+    reader.readAsDataURL(file);
+  });
+};
+
+let mapSelectInstance = null;
+let mapSelectMarker = null;
+let selectedLat = 31.737;
+let selectedLng = -106.485;
+
+window.searchGeoAddress = function() {
+  const address = document.querySelector('#geoSearchInput').value;
+  if (!address) return;
+  fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`)
+    .then(r => r.json())
+    .then(data => {
+      if (data && data.length > 0) {
+        const item = data[0];
+        const lat = parseFloat(item.lat);
+        const lng = parseFloat(item.lon);
+        selectedLat = lat;
+        selectedLng = lng;
+        document.querySelector('#latInput').value = lat;
+        document.querySelector('#lngInput').value = lng;
+        if (mapSelectInstance) {
+          mapSelectInstance.setView([lat, lng], 15);
+          if (mapSelectMarker) mapSelectInstance.removeLayer(mapSelectMarker);
+          mapSelectMarker = L.marker([lat, lng]).addTo(mapSelectInstance);
+        }
+      } else {
+        alert('Dirección no encontrada en el buscador.');
+      }
+    }).catch(() => alert('Error al consultar geolocalización.'));
+};
+
+function initModalMap(lat, lng) {
+  const mapDiv = document.querySelector('#map-select');
+  if (!mapDiv || !window.L) return;
+
+  selectedLat = lat || 31.737;
+  selectedLng = lng || -106.485;
+  document.querySelector('#latInput').value = selectedLat;
+  document.querySelector('#lngInput').value = selectedLng;
+
+  mapSelectInstance = L.map('map-select').setView([selectedLat, selectedLng], 14);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(mapSelectInstance);
+
+  mapSelectMarker = L.marker([selectedLat, selectedLng]).addTo(mapSelectInstance);
+
+  mapSelectInstance.on('click', function(e) {
+    const lat = e.latlng.lat;
+    const lng = e.latlng.lng;
+    selectedLat = lat;
+    selectedLng = lng;
+    document.querySelector('#latInput').value = lat;
+    document.querySelector('#lngInput').value = lng;
+    if (mapSelectMarker) mapSelectInstance.removeLayer(mapSelectMarker);
+    mapSelectMarker = L.marker([lat, lng]).addTo(mapSelectInstance);
+  });
+}
+
 function openPropertyModal() {
+  uploadedMedia = [];
   modal('Añadir Nueva Propiedad', `
     <form id="propertyForm">
       <div style="margin-bottom:12px;">
         <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Nombre</label>
         <input name="name" required placeholder="Ej: Suite Deluxe HTJ Juarez" style="width:100%;">
       </div>
-      <div style="margin-bottom:12px;">
-        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Tipo</label>
-        <select name="type" required style="width:100%;padding:14px;border:1px solid var(--panel2);background:var(--panel);color:white;border-radius:12px;">
-          <option value="SUITE">Suite</option>
-          <option value="HOTEL">Hotel</option>
-          <option value="HOUSE">Casa</option>
-          <option value="APARTMENT">Departamento</option>
-          <option value="ROOM">Habitación</option>
-        </select>
+      <div style="margin-bottom:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div>
+          <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Tipo</label>
+          <select name="type" required style="width:100%;padding:14px;border:1px solid var(--panel2);background:var(--panel);color:white;border-radius:12px;">
+            <option value="SUITE">Suite</option>
+            <option value="HOTEL">Hotel</option>
+            <option value="HOUSE">Casa</option>
+            <option value="APARTMENT">Departamento</option>
+            <option value="ROOM">Habitación</option>
+          </select>
+        </div>
+        <div>
+          <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Huéspedes Máximos</label>
+          <input name="maxGuests" type="number" required value="2" min="1" style="width:100%;">
+        </div>
       </div>
       <div style="margin-bottom:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px;">
         <div>
@@ -587,21 +707,38 @@ function openPropertyModal() {
           <input name="city" required placeholder="Ciudad Juárez" style="width:100%;">
         </div>
         <div>
-          <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Huéspedes</label>
-          <input name="maxGuests" type="number" required value="2" min="1" style="width:100%;">
+          <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Precio Base (MXN)</label>
+          <input name="basePrice" type="number" required value="1200" min="0" style="width:100%;">
         </div>
       </div>
       <div style="margin-bottom:12px;">
-        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Dirección</label>
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Dirección Física</label>
         <input name="address" required placeholder="Ej: Av. Tecnológico 1500" style="width:100%;">
       </div>
-      <div style="margin-bottom:20px;">
-        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Precio Base (MXN)</label>
-        <input name="basePrice" type="number" required value="1200" min="0" style="width:100%;">
+      
+      <div style="margin-bottom:12px;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Buscador de Ubicación (Google Maps / OSM)</label>
+        <div style="display:flex;gap:6px;margin-bottom:8px;">
+          <input id="geoSearchInput" placeholder="Ej: Juárez, Chihuahua..." style="flex:1;margin:0;">
+          <button type="button" class="btn-action" onclick="window.searchGeoAddress()" style="background:var(--gold);color:#171106;padding:0 15px;">Buscar</button>
+        </div>
+        <div id="map-select" style="height: 160px; border-radius: 12px; border:1px solid rgba(255,255,255,0.1); z-index:1;"></div>
+        <input type="hidden" name="lat" id="latInput">
+        <input type="hidden" name="lng" id="lngInput">
       </div>
+
+      <div style="margin-bottom:16px;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Fotos y Videos</label>
+        <button type="button" class="btn-action" onclick="document.querySelector('#mediaFiles').click()" style="width:100%;padding:10px;background:var(--panel2);border:1px dashed rgba(255,255,255,0.2);color:white;">📷 Subir Multimedia</button>
+        <input type="file" id="mediaFiles" accept="image/*,video/*" multiple onchange="window.handleMediaUpload(event)" style="display:none;">
+        <div id="mediaPreview" style="display:flex;gap:8px;margin-top:10px;overflow-x:auto;padding-bottom:5px;"></div>
+      </div>
+
       <button class="primary" style="width:100%;padding:14px;background:var(--gold);color:#171106;font-weight:bold;">Guardar Propiedad</button>
     </form>
   `);
+
+  setTimeout(() => initModalMap(31.737, -106.485), 100);
 
   document.querySelector('#propertyForm').onsubmit = async (e) => {
     e.preventDefault();
@@ -612,7 +749,12 @@ function openPropertyModal() {
       city: fd.get('city'),
       address: fd.get('address'),
       maxGuests: parseInt(fd.get('maxGuests')),
-      basePrice: parseFloat(fd.get('basePrice'))
+      basePrice: parseFloat(fd.get('basePrice')),
+      media: uploadedMedia,
+      details: {
+        lat: parseFloat(fd.get('lat')),
+        lng: parseFloat(fd.get('lng'))
+      }
     };
 
     try {
@@ -628,49 +770,87 @@ function openPropertyModal() {
         alert('Error al guardar la propiedad.');
       }
     } catch (err) {
-      alert('Error de conexión con la API.');
+      alert('Error de conexión.');
     }
   };
 }
 
-window.openEditPropertyModal = function(id, name, type, city, address, maxGuests, basePrice) {
+function openEditPropertyModal(id) {
+  const p = properties.find(x => x.id === id);
+  if (!p) return;
+
+  uploadedMedia = p.media || [];
   modal('Editar Propiedad / Alojamiento', `
     <form id="editPropertyForm">
       <div style="margin-bottom:12px;">
         <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Nombre</label>
-        <input name="name" required value="${name}" style="width:100%;">
+        <input name="name" required value="${p.name}" style="width:100%;">
       </div>
-      <div style="margin-bottom:12px;">
-        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Tipo</label>
-        <select name="type" required style="width:100%;padding:14px;border:1px solid var(--panel2);background:var(--panel);color:white;border-radius:12px;">
-          <option value="SUITE" ${type === 'SUITE' ? 'selected' : ''}>Suite</option>
-          <option value="HOTEL" ${type === 'HOTEL' ? 'selected' : ''}>Hotel</option>
-          <option value="HOUSE" ${type === 'HOUSE' ? 'selected' : ''}>Casa</option>
-          <option value="APARTMENT" ${type === 'APARTMENT' ? 'selected' : ''}>Departamento</option>
-          <option value="ROOM" ${type === 'ROOM' ? 'selected' : ''}>Habitación</option>
-        </select>
+      <div style="margin-bottom:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div>
+          <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Tipo</label>
+          <select name="type" required style="width:100%;padding:14px;border:1px solid var(--panel2);background:var(--panel);color:white;border-radius:12px;">
+            <option value="SUITE" ${p.type === 'SUITE' ? 'selected' : ''}>Suite</option>
+            <option value="HOTEL" ${p.type === 'HOTEL' ? 'selected' : ''}>Hotel</option>
+            <option value="HOUSE" ${p.type === 'HOUSE' ? 'selected' : ''}>Casa</option>
+            <option value="APARTMENT" ${p.type === 'APARTMENT' ? 'selected' : ''}>Departamento</option>
+            <option value="ROOM" ${p.type === 'ROOM' ? 'selected' : ''}>Habitación</option>
+          </select>
+        </div>
+        <div>
+          <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Huéspedes Máximos</label>
+          <input name="maxGuests" type="number" required value="${p.max_guests}" min="1" style="width:100%;">
+        </div>
       </div>
       <div style="margin-bottom:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px;">
         <div>
           <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Ciudad</label>
-          <input name="city" required value="${city}" style="width:100%;">
+          <input name="city" required value="${p.city}" style="width:100%;">
         </div>
         <div>
-          <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Huéspedes</label>
-          <input name="maxGuests" type="number" required value="${maxGuests}" min="1" style="width:100%;">
+          <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Precio Base (MXN)</label>
+          <input name="basePrice" type="number" required value="${p.base_price}" min="0" style="width:100%;">
         </div>
       </div>
       <div style="margin-bottom:12px;">
-        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Dirección</label>
-        <input name="address" required value="${address}" style="width:100%;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Dirección Física</label>
+        <input name="address" required value="${p.address || ''}" style="width:100%;">
       </div>
-      <div style="margin-bottom:20px;">
-        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Precio Base (MXN)</label>
-        <input name="basePrice" type="number" required value="${basePrice}" min="0" style="width:100%;">
+      
+      <div style="margin-bottom:12px;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Buscador de Ubicación (Google Maps / OSM)</label>
+        <div style="display:flex;gap:6px;margin-bottom:8px;">
+          <input id="geoSearchInput" placeholder="Ej: Juárez, Chihuahua..." style="flex:1;margin:0;">
+          <button type="button" class="btn-action" onclick="window.searchGeoAddress()" style="background:var(--gold);color:#171106;padding:0 15px;">Buscar</button>
+        </div>
+        <div id="map-select" style="height: 160px; border-radius: 12px; border:1px solid rgba(255,255,255,0.1); z-index:1;"></div>
+        <input type="hidden" name="lat" id="latInput">
+        <input type="hidden" name="lng" id="lngInput">
       </div>
+
+      <div style="margin-bottom:16px;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Fotos y Videos</label>
+        <button type="button" class="btn-action" onclick="document.querySelector('#mediaFiles').click()" style="width:100%;padding:10px;background:var(--panel2);border:1px dashed rgba(255,255,255,0.2);color:white;">📷 Subir Multimedia</button>
+        <input type="file" id="mediaFiles" accept="image/*,video/*" multiple onchange="window.handleMediaUpload(event)" style="display:none;">
+        <div id="mediaPreview" style="display:flex;gap:8px;margin-top:10px;overflow-x:auto;padding-bottom:5px;">
+          ${uploadedMedia.map(m => `
+            <div style="width:60px;height:60px;border-radius:8px;overflow:hidden;border:1px solid var(--gold);flex-shrink:0;position:relative;">
+              ${m.type === 'video'
+                ? `<video src="${m.url}" style="width:100%;height:100%;object-fit:cover;"></video>`
+                : `<img src="${m.url}" style="width:100%;height:100%;object-fit:cover;">`
+              }
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
       <button class="primary" style="width:100%;padding:14px;background:var(--gold);color:#171106;font-weight:bold;">Guardar Cambios</button>
     </form>
   `);
+
+  const initialLat = p.details?.lat || 31.737;
+  const initialLng = p.details?.lng || -106.485;
+  setTimeout(() => initModalMap(initialLat, initialLng), 100);
 
   document.querySelector('#editPropertyForm').onsubmit = async (e) => {
     e.preventDefault();
@@ -681,7 +861,13 @@ window.openEditPropertyModal = function(id, name, type, city, address, maxGuests
       city: fd.get('city'),
       address: fd.get('address'),
       maxGuests: parseInt(fd.get('maxGuests')),
-      basePrice: parseFloat(fd.get('basePrice'))
+      basePrice: parseFloat(fd.get('basePrice')),
+      media: uploadedMedia,
+      details: {
+        ...p.details,
+        lat: parseFloat(fd.get('lat')),
+        lng: parseFloat(fd.get('lng'))
+      }
     };
 
     try {
@@ -700,7 +886,7 @@ window.openEditPropertyModal = function(id, name, type, city, address, maxGuests
       alert('Error de conexión.');
     }
   };
-};
+}
 
 window.deleteProperty = async function(id) {
   if (!confirm('¿Estás seguro de que deseas eliminar esta propiedad?')) return;
@@ -729,7 +915,9 @@ window.updatePropertyStatus = async function(id, newStatus) {
     address: prop.address || '',
     maxGuests: prop.max_guests,
     basePrice: parseFloat(prop.base_price),
-    status: newStatus
+    status: newStatus,
+    media: prop.media || [],
+    details: prop.details || {}
   };
 
   try {
@@ -781,6 +969,7 @@ window.openMaintenanceReportModal = function(id, currentIncident) {
       maxGuests: prop.max_guests,
       basePrice: parseFloat(prop.base_price),
       status: newStatus,
+      media: prop.media || [],
       details: { ...prop.details, incident: incidentText }
     };
 
@@ -1001,7 +1190,7 @@ window.deleteEmployee = async function(id) {
     if (res.ok) {
       load();
     } else {
-      alert('Error al eliminar el empleado.');
+      alert('Error al eliminar the empleado.');
     }
   } catch (err) {
     alert('Error de conexión.');
