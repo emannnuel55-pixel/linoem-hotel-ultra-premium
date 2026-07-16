@@ -980,6 +980,52 @@ window.openEditPropertyModal = function(id) {
         </div>
       </div>
 
+      <div style="margin-bottom:12px;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Descripción del Alojamiento</label>
+        <textarea name="description" rows="3" placeholder="Describe el espacio..." style="width:100%;padding:12px;border:1px solid var(--panel2);background:var(--panel);color:white;border-radius:12px;resize:vertical;">${p.details?.description || ''}</textarea>
+      </div>
+
+      <div style="margin-bottom:12px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+        <div>
+          <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Recámaras</label>
+          <input name="bedrooms" type="number" value="${p.details?.bedrooms || 1}" min="0" style="width:100%;">
+        </div>
+        <div>
+          <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Baños</label>
+          <input name="bathrooms" type="number" value="${p.details?.bathrooms || 1}" min="0" style="width:100%;">
+        </div>
+        <div>
+          <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Tamaño (m²)</label>
+          <input name="property_size" type="number" value="${p.details?.property_size || ''}" min="0" placeholder="Ej: 45" style="width:100%;">
+        </div>
+      </div>
+
+      <div style="margin-bottom:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div>
+          <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Check-in</label>
+          <input name="check_in_time" type="time" value="${p.details?.check_in_time || '15:00'}" style="width:100%;">
+        </div>
+        <div>
+          <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Check-out</label>
+          <input name="check_out_time" type="time" value="${p.details?.check_out_time || '12:00'}" style="width:100%;">
+        </div>
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <label style="display:block;margin-bottom:6px;font-size:0.85rem;color:var(--muted)">Amenidades</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+          ${['WiFi','Estacionamiento','Alberca','A/C','TV','Cocina','Lavandería','Gym','Seguridad','Mascotas','Balcón','Jardín','Calefacción','Jacuzzi'].map(a => {
+            const checked = (p.details?.amenities || []).includes(a) ? 'checked' : '';
+            return `<label style="display:flex;align-items:center;gap:8px;font-size:0.82rem;cursor:pointer;padding:6px;background:rgba(255,255,255,0.04);border-radius:8px;"><input type="checkbox" name="amenity_${a.replace(/[^a-z]/gi,'_')}" value="${a}" ${checked} style="accent-color:var(--gold);">${a}</label>`;
+          }).join('')}
+        </div>
+      </div>
+
+      <div style="margin-bottom:16px;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Reglas de la Propiedad</label>
+        <textarea name="rules" rows="2" placeholder="Ej: No fumar..." style="width:100%;padding:12px;border:1px solid var(--panel2);background:var(--panel);color:white;border-radius:12px;resize:vertical;">${p.details?.rules || ''}</textarea>
+      </div>
+
       <button class="primary" style="width:100%;padding:14px;background:var(--gold);color:#171106;font-weight:bold;">Guardar Cambios</button>
     </form>
   `);
@@ -991,6 +1037,8 @@ window.openEditPropertyModal = function(id) {
   document.querySelector('#editPropertyForm').onsubmit = async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
+    const amenities = ['WiFi','Estacionamiento','Alberca','A/C','TV','Cocina','Lavandería','Gym','Seguridad','Mascotas','Balcón','Jardín','Calefacción','Jacuzzi']
+      .filter(a => fd.get('amenity_'+a.replace(/[^a-z]/gi,'_')));
     const body = {
       name: fd.get('name'),
       type: fd.get('type'),
@@ -1002,7 +1050,15 @@ window.openEditPropertyModal = function(id) {
       details: {
         ...p.details,
         lat: parseFloat(fd.get('lat') || selectedLat),
-        lng: parseFloat(fd.get('lng') || selectedLng)
+        lng: parseFloat(fd.get('lng') || selectedLng),
+        description: fd.get('description') || '',
+        amenities,
+        bedrooms: parseInt(fd.get('bedrooms') || 1),
+        bathrooms: parseInt(fd.get('bathrooms') || 1),
+        property_size: parseFloat(fd.get('property_size') || 0) || undefined,
+        check_in_time: fd.get('check_in_time') || '15:00',
+        check_out_time: fd.get('check_out_time') || '12:00',
+        rules: fd.get('rules') || ''
       }
     };
 

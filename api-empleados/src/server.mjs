@@ -51,7 +51,7 @@ app.post('/v1/properties/:id/publish',role('SUPER_ADMIN','MANAGER'),safe(async(r
   if(!rows[0])return res.status(404).end();
   const p=rows[0],url=process.env.CLIENT_API_URL;
   let synced=false,syncError=null;
-  if(url){try{const r=await fetch(url+'/internal/catalog',{method:'POST',headers:{'content-type':'application/json','x-sync-secret':process.env.ADMIN_SYNC_SECRET||''},body:JSON.stringify({id:p.id,name:p.name,type:p.type,city:p.city,maxGuests:p.max_guests,basePrice:Number(p.base_price),details:p.details,media:p.media,version:Number(p.version)}),signal:AbortSignal.timeout(8000)});synced=r.ok;if(!r.ok)syncError='API clientes respondio con error '+r.status;}catch(err){syncError=err.message;}}
+  if(url){try{const r=await fetch(url+'/internal/catalog',{method:'POST',headers:{'content-type':'application/json','x-sync-secret':process.env.ADMIN_SYNC_SECRET||''},body:JSON.stringify({id:p.id,name:p.name,type:p.type,city:p.city,address:p.address,maxGuests:p.max_guests,basePrice:Number(p.base_price),details:p.details,media:p.media,version:Number(p.version)}),signal:AbortSignal.timeout(8000)});synced=r.ok;if(!r.ok)syncError='API clientes respondio con error '+r.status;}catch(err){syncError=err.message;}}
   res.json({property:p,synced,syncError,message:synced?'Propiedad publicada y sincronizada correctamente':'Propiedad marcada como publicada. Sincronizacion pendiente.'});
 }));
 
