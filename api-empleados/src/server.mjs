@@ -49,10 +49,54 @@ app.delete('/v1/properties/:id',role('SUPER_ADMIN','MANAGER'),safe(async(req,res
 app.post('/v1/properties/:id/publish',role('SUPER_ADMIN','MANAGER'),safe(async(req,res)=>{
   const {rows}=await q("UPDATE properties SET published=true,version=version+1,updated_at=now() WHERE id=$1 RETURNING *",[req.params.id]);
   if(!rows[0])return res.status(404).end();
-  const p=rows[0],url=process.env.CLIENT_API_URL;
+  const p=rows[0];
+  const publicUrl=process.env.CLIENT_API_URL;
+  const privateUrl='http://api-clientes.railway.internal:4000';
+  const urlsToTry = [publicUrl, privateUrl].filter(Boolean);
+
   let synced=false,syncError=null;
-  if(url){try{const r=await fetch(url+'/internal/catalog',{method:'POST',headers:{'content-type':'application/json','x-sync-secret':process.env.ADMIN_SYNC_SECRET||''},body:JSON.stringify({id:p.id,name:p.name,type:p.type,city:p.city,address:p.address,maxGuests:p.max_guests,basePrice:Number(p.base_price),details:p.details,media:p.media,version:Number(p.version)}),signal:AbortSignal.timeout(8000)});synced=r.ok;if(!r.ok)syncError='API clientes respondio con error '+r.status;}catch(err){syncError=err.message;}}
-  res.json({property:p,synced,syncError,message:synced?'Propiedad publicada y sincronizada correctamente':'Propiedad marcada como publicada. Sincronizacion pendiente.'});
+  const bodyData = {
+    id: p.id,
+    name: p.name,
+    type: p.type,
+    city: p.city,
+    address: p.address,
+    maxGuests: p.max_guests,
+    basePrice: Number(p.base_price),
+    details: p.details,
+    media: p.media,
+    version: Number(p.version)
+  };
+
+  for (const url of urlsToTry) {
+    try {
+      const r = await fetch(url + '/internal/catalog', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-sync-secret': process.env.ADMIN_SYNC_SECRET || ''
+        },
+        body: JSON.stringify(bodyData),
+        signal: AbortSignal.timeout(8000)
+      });
+      if (r.ok) {
+        synced = true;
+        syncError = null;
+        break;
+      } else {
+        syncError = `API clientes (${url}) respondio con error ${r.status}`;
+      }
+    } catch (err) {
+      syncError = `Fallo conexion con ${url}: ${err.message}`;
+    }
+  }
+
+  res.json({
+    property: p,
+    synced,
+    syncError: synced ? null : (syncError || 'No se configuro CLIENT_API_URL'),
+    message: synced ? 'Propiedad publicada y sincronizada correctamente' : 'Propiedad marcada como publicada. Sincronizacion pendiente.'
+  });
 }));
 
 // ── RESERVACIONES ─────────────────────────────────────────────────────────────
