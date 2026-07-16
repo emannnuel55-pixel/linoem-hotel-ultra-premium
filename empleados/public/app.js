@@ -1,3 +1,6 @@
+if (localStorage.getItem('theme') === 'light') {
+  document.body.classList.add('light-theme');
+}
 const API = window.LINOEM.API_URL;
 let currentTab = 'resumen';
 let properties = [];
@@ -568,6 +571,12 @@ function render() {
             </button>
           `).join('')}
         </div>
+        <div class="theme-toggle-wrapper">
+          <button id="themeToggleBtn" class="theme-toggle">
+            <span class="theme-icon">${document.body.classList.contains('light-theme') ? '☀️' : '🌙'}</span> 
+            ${document.body.classList.contains('light-theme') ? 'Tema Claro' : 'Tema Oscuro'}
+          </button>
+        </div>
       </aside>
       <main class="main">
         ${mainContent}
@@ -603,6 +612,16 @@ function render() {
 
   const addPayrollBtn = document.querySelector('#addPayrollBtn');
   if (addPayrollBtn) addPayrollBtn.onclick = openPayrollModal;
+
+  const themeToggleBtn = document.querySelector('#themeToggleBtn');
+  if (themeToggleBtn) {
+    themeToggleBtn.onclick = () => {
+      document.body.classList.toggle('light-theme');
+      const isLight = document.body.classList.contains('light-theme');
+      localStorage.setItem('theme', isLight ? 'light' : 'dark');
+      render();
+    };
+  }
 }
 
 window.switchTab = function(tabId) {
@@ -860,7 +879,7 @@ function openPropertyModal() {
 
       <button class="primary" style="width:100%;padding:14px;background:var(--gold);color:#171106;font-weight:bold;">Guardar Propiedad</button>
     </form>
-  `);
+  `, true);
 
   setTimeout(() => initModalMap(31.737, -106.485), 100);
 
@@ -1028,7 +1047,7 @@ window.openEditPropertyModal = function(id) {
 
       <button class="primary" style="width:100%;padding:14px;background:var(--gold);color:#171106;font-weight:bold;">Guardar Cambios</button>
     </form>
-  `);
+  `, true);
 
   const initialLat = p.details?.lat || 31.737;
   const initialLng = p.details?.lng || -106.485;
@@ -1638,10 +1657,10 @@ window.publishProperty = async function(id) {
   }
 };
 
-function modal(title, body) {
+function modal(title, body, isWide = false) {
   const m = document.createElement('div');
   m.className = 'modal';
-  m.innerHTML = `<div class="sheet"><button class="close">×</button><h2>${title}</h2>${body}</div>`;
+  m.innerHTML = `<div class="sheet ${isWide ? 'wide' : ''}"><button class="close">×</button><h2>${title}</h2>${body}</div>`;
   m.querySelector('.close').onclick = () => m.remove();
   m.onclick = e => {
     if (e.target === m) m.remove();
@@ -1668,72 +1687,88 @@ function openPayrollModal() {
       .pay-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
       .pay-grid .full{grid-column:1/-1;}
       .pay-label{display:block;margin-bottom:3px;font-size:0.75rem;color:var(--muted);}
-      .pay-input{width:100%;padding:9px 11px;border:1px solid rgba(255,255,255,0.1);background:var(--panel);color:white;border-radius:9px;font-size:0.85rem;box-sizing:border-box;}
+      .pay-input{width:100%;padding:9px 11px;border:1px solid var(--border);background:var(--panel);color:white;border-radius:9px;font-size:0.85rem;box-sizing:border-box;}
       .pay-input:focus{outline:none;border-color:var(--gold);}
       .checadas-row{display:flex;gap:6px;margin-bottom:6px;align-items:center;}
     </style>
     <form id="payrollFormNew">
-      <div class="pay-section">
-        <h4>\uD83D\uDC64 Empleado y Periodo</h4>
-        <div style="margin-bottom:8px;">
-          <label class="pay-label">Colaborador</label>
-          <select name="employeeId" required class="pay-input">${employees.map(e => `<option value="${e.id}">${e.name} — #${e.clock_number||'N/A'} (${e.role})</option>`).join('')}</select>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+        <!-- Columna 1 -->
+        <div>
+          <div class="pay-section">
+            <h4>\uD83D\uDC64 Empleado y Periodo</h4>
+            <div style="margin-bottom:8px;">
+              <label class="pay-label">Colaborador</label>
+              <select name="employeeId" required class="pay-input">${employees.map(e => `<option value="${e.id}">${e.name} — #${e.clock_number||'N/A'} (${e.role})</option>`).join('')}</select>
+            </div>
+            <div class="pay-grid">
+              <div><label class="pay-label">Inicio Periodo</label><input name="periodStart" type="date" required value="${firstOfMonth}" class="pay-input"></div>
+              <div><label class="pay-label">Fin Periodo</label><input name="periodEnd" type="date" required value="${today}" class="pay-input"></div>
+              <div><label class="pay-label">D\u00edas Trabajados</label><input name="diasTrab" type="number" value="15" min="0" class="pay-input"></div>
+              <div><label class="pay-label">D\u00edas Festivos</label><input name="diasFest" type="number" value="0" min="0" class="pay-input"></div>
+            </div>
+          </div>
+          <div class="pay-section">
+            <h4>\uD83D\uDFE2 Percepciones</h4>
+            <div class="pay-grid">
+              <div><label class="pay-label">Salario Base (MXN)</label><input name="gross" type="number" required value="8000" min="0" class="pay-input" oninput="calcNomina()"></div>
+              <div><label class="pay-label">Horas Extras (cant.)</label><input name="overtimeHours" type="number" value="0" min="0" step="0.5" class="pay-input"></div>
+              <div><label class="pay-label">Pago Hrs Extras (MXN)</label><input name="overtimePay" type="number" value="0" min="0" class="pay-input" oninput="calcNomina()"></div>
+              <div><label class="pay-label">Bono Asistencia (MXN)</label><input name="attendanceBonus" type="number" value="0" min="0" class="pay-input" oninput="calcNomina()"></div>
+              <div><label class="pay-label">Bono Puntualidad (MXN)</label><input name="punctualityBonus" type="number" value="0" min="0" class="pay-input" oninput="calcNomina()"></div>
+              <div><label class="pay-label">Otros Ingresos (MXN)</label><input name="otroIngreso" type="number" value="0" min="0" class="pay-input" oninput="calcNomina()"></div>
+            </div>
+            <div style="margin-top:8px;padding:8px 12px;background:rgba(79,209,149,0.1);border-radius:8px;display:flex;justify-content:space-between;">
+              <span style="color:#4fd195;font-size:0.82rem;">TOTAL PERCEPCIONES:</span><strong id="payTP" style="color:#4fd195;">$0.00</strong>
+            </div>
+          </div>
         </div>
-        <div class="pay-grid">
-          <div><label class="pay-label">Inicio Periodo</label><input name="periodStart" type="date" required value="${firstOfMonth}" class="pay-input"></div>
-          <div><label class="pay-label">Fin Periodo</label><input name="periodEnd" type="date" required value="${today}" class="pay-input"></div>
-          <div><label class="pay-label">D\u00edas Trabajados</label><input name="diasTrab" type="number" value="15" min="0" class="pay-input"></div>
-          <div><label class="pay-label">D\u00edas Festivos</label><input name="diasFest" type="number" value="0" min="0" class="pay-input"></div>
+        <!-- Columna 2 -->
+        <div>
+          <div class="pay-section">
+            <h4>\uD83D\uDD34 Deducciones (IMSS / ISR / INFONAVIT / FONACOT)</h4>
+            <div class="pay-grid">
+              <div><label class="pay-label">IMSS Trabajador (MXN)</label><input name="imssEmployee" type="number" value="0" min="0" class="pay-input" oninput="calcNomina()"></div>
+              <div><label class="pay-label">IMSS Patr\u00f3n (MXN)</label><input name="imssEmployer" type="number" value="0" min="0" class="pay-input"></div>
+              <div><label class="pay-label">ISR Retenido (MXN)</label><input name="isr" type="number" value="0" min="0" class="pay-input" oninput="calcNomina()"></div>
+              <div><label class="pay-label">INFONAVIT (MXN)</label><input name="infonavit" type="number" value="0" min="0" class="pay-input" oninput="calcNomina()"></div>
+              <div><label class="pay-label">FONACOT (MXN)</label><input name="fonacot" type="number" value="0" min="0" class="pay-input" oninput="calcNomina()"></div>
+              <div><label class="pay-label">Otras Deducciones (MXN)</label><input name="otraDeduccion" type="number" value="0" min="0" class="pay-input" oninput="calcNomina()"></div>
+            </div>
+            <div style="margin-top:8px;padding:8px 12px;background:rgba(255,101,119,0.1);border-radius:8px;display:flex;justify-content:space-between;">
+              <span style="color:#ff6577;font-size:0.82rem;">TOTAL DEDUCCIONES:</span><strong id="payTD" style="color:#ff6577;">$0.00</strong>
+            </div>
+          </div>
+          <div class="pay-section">
+            <h4>\uD83D\uDD50 Checadas de Reloj</h4>
+            <div id="checadasBox">
+              <div class="checadas-row"><input type="datetime-local" name="ch_0" class="pay-input" style="flex:1;"><select name="ch_0_t" class="pay-input" style="width:110px;"><option value="ENTRADA">Entrada</option><option value="SALIDA">Salida</option></select></div>
+            </div>
+            <button type="button" onclick="addPayChecada()" style="margin-top:6px;background:rgba(255,255,255,0.05);color:var(--muted);border:1px dashed rgba(255,255,255,0.2);padding:7px 14px;border-radius:8px;cursor:pointer;width:100%;font-size:0.82rem;">+ Agregar Checada</button>
+          </div>
         </div>
       </div>
-      <div class="pay-section">
-        <h4>\uD83D\uDFE2 Percepciones</h4>
-        <div class="pay-grid">
-          <div><label class="pay-label">Salario Base (MXN)</label><input name="gross" type="number" required value="8000" min="0" class="pay-input" oninput="calcNomina()"></div>
-          <div><label class="pay-label">Horas Extras (cant.)</label><input name="overtimeHours" type="number" value="0" min="0" step="0.5" class="pay-input"></div>
-          <div><label class="pay-label">Pago Hrs Extras (MXN)</label><input name="overtimePay" type="number" value="0" min="0" class="pay-input" oninput="calcNomina()"></div>
-          <div><label class="pay-label">Bono Asistencia (MXN)</label><input name="attendanceBonus" type="number" value="0" min="0" class="pay-input" oninput="calcNomina()"></div>
-          <div><label class="pay-label">Bono Puntualidad (MXN)</label><input name="punctualityBonus" type="number" value="0" min="0" class="pay-input" oninput="calcNomina()"></div>
-          <div><label class="pay-label">Otros Ingresos (MXN)</label><input name="otroIngreso" type="number" value="0" min="0" class="pay-input" oninput="calcNomina()"></div>
-        </div>
-        <div style="margin-top:8px;padding:8px 12px;background:rgba(79,209,149,0.1);border-radius:8px;display:flex;justify-content:space-between;">
-          <span style="color:#4fd195;font-size:0.82rem;">TOTAL PERCEPCIONES:</span><strong id="payTP" style="color:#4fd195;">$0.00</strong>
-        </div>
-      </div>
-      <div class="pay-section">
-        <h4>\uD83D\uDD34 Deducciones (IMSS / ISR / INFONAVIT / FONACOT)</h4>
-        <div class="pay-grid">
-          <div><label class="pay-label">IMSS Trabajador (MXN)</label><input name="imssEmployee" type="number" value="0" min="0" class="pay-input" oninput="calcNomina()"></div>
-          <div><label class="pay-label">IMSS Patr\u00f3n (MXN)</label><input name="imssEmployer" type="number" value="0" min="0" class="pay-input"></div>
-          <div><label class="pay-label">ISR Retenido (MXN)</label><input name="isr" type="number" value="0" min="0" class="pay-input" oninput="calcNomina()"></div>
-          <div><label class="pay-label">INFONAVIT (MXN)</label><input name="infonavit" type="number" value="0" min="0" class="pay-input" oninput="calcNomina()"></div>
-          <div><label class="pay-label">FONACOT (MXN)</label><input name="fonacot" type="number" value="0" min="0" class="pay-input" oninput="calcNomina()"></div>
-          <div><label class="pay-label">Otras Deducciones (MXN)</label><input name="otraDeduccion" type="number" value="0" min="0" class="pay-input" oninput="calcNomina()"></div>
-        </div>
-        <div style="margin-top:8px;padding:8px 12px;background:rgba(255,101,119,0.1);border-radius:8px;display:flex;justify-content:space-between;">
-          <span style="color:#ff6577;font-size:0.82rem;">TOTAL DEDUCCIONES:</span><strong id="payTD" style="color:#ff6577;">$0.00</strong>
-        </div>
-      </div>
-      <div class="pay-section">
-        <h4>\uD83D\uDD50 Checadas de Reloj</h4>
-        <div id="checadasBox">
-          <div class="checadas-row"><input type="datetime-local" name="ch_0" class="pay-input" style="flex:1;"><select name="ch_0_t" class="pay-input" style="width:110px;"><option value="ENTRADA">Entrada</option><option value="SALIDA">Salida</option></select></div>
-        </div>
-        <button type="button" onclick="addPayChecada()" style="margin-top:6px;background:rgba(255,255,255,0.05);color:var(--muted);border:1px dashed rgba(255,255,255,0.2);padding:7px 14px;border-radius:8px;cursor:pointer;width:100%;font-size:0.82rem;">+ Agregar Checada</button>
-      </div>
+      
+      <!-- Resumen y Notas inferior a lo ancho -->
       <div class="pay-section">
         <h4>\uD83D\uDCCB Resumen Final</h4>
-        <div style="padding:14px;background:rgba(212,168,78,0.1);border-radius:10px;border:1px solid rgba(212,168,78,0.3);margin-bottom:10px;">
-          <div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:var(--muted);">Percepciones:</span><strong id="payTP2" style="color:#4fd195;">$0.00</strong></div>
-          <div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:var(--muted);">Deducciones:</span><strong id="payTD2" style="color:#ff6577;">$0.00</strong></div>
-          <div style="display:flex;justify-content:space-between;border-top:1px solid rgba(212,168,78,0.3);padding-top:8px;"><span style="font-weight:bold;">NETO A PAGAR:</span><strong id="payNeto" style="color:var(--gold);font-size:1.1rem;">$0.00</strong></div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+          <div>
+            <div style="padding:14px;background:rgba(212,168,78,0.1);border-radius:10px;border:1px solid rgba(212,168,78,0.3);margin-bottom:0;">
+              <div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:var(--muted);">Percepciones:</span><strong id="payTP2" style="color:#4fd195;">$0.00</strong></div>
+              <div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:var(--muted);">Deducciones:</span><strong id="payTD2" style="color:#ff6577;">$0.00</strong></div>
+              <div style="display:flex;justify-content:space-between;border-top:1px solid rgba(212,168,78,0.3);padding-top:8px;"><span style="font-weight:bold;">NETO A PAGAR:</span><strong id="payNeto" style="color:var(--gold);font-size:1.1rem;">$0.00</strong></div>
+            </div>
+          </div>
+          <div>
+            <div style="margin-bottom:8px;"><label class="pay-label">Notas / Observaciones</label><textarea name="notes" rows="2" placeholder="Vacaciones, bonos especiales, etc." class="pay-input" style="resize:vertical;margin:0;"></textarea></div>
+            <div><label class="pay-label">Estado de Pago</label><select name="status" class="pay-input" style="margin:0;"><option value="DRAFT">Borrador (DRAFT)</option><option value="APPROVED">Aprobado (APPROVED)</option><option value="PAID">Pagado (PAID)</option></select></div>
+          </div>
         </div>
-        <div style="margin-bottom:8px;"><label class="pay-label">Notas / Observaciones</label><textarea name="notes" rows="2" placeholder="Vacaciones, bonos especiales, etc." class="pay-input" style="resize:vertical;"></textarea></div>
-        <div><label class="pay-label">Estado de Pago</label><select name="status" class="pay-input"><option value="DRAFT">Borrador (DRAFT)</option><option value="APPROVED">Aprobado (APPROVED)</option><option value="PAID">Pagado (PAID)</option></select></div>
       </div>
       <button class="primary" style="width:100%;padding:13px;background:var(--gold);color:#171106;font-weight:bold;font-size:0.95rem;">\uD83D\uDCBE Guardar Recibo de N\u00f3mina</button>
     </form>
-  `);
+  `, true);
 
   window.calcNomina = function() {
     const g = n => parseFloat(document.querySelector(`[name="${n}"]`)?.value || 0);
