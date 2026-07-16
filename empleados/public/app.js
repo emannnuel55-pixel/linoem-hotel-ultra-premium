@@ -722,7 +722,7 @@ function initModalMap(lat, lng) {
   document.querySelector('#latInput').value = selectedLat;
   document.querySelector('#lngInput').value = selectedLng;
 
-  mapSelectInstance = L.map('map-select').setView([selectedLat, selectedLng], 14);
+  mapSelectInstance = L.map('map-select', { keyboard: false }).setView([selectedLat, selectedLng], 14);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap'
   }).addTo(mapSelectInstance);

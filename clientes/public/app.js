@@ -153,7 +153,7 @@ function initMap() {
     centerLng /= count;
   }
 
-  mapInstance = L.map('client-map').setView([centerLat, centerLng], count > 1 ? 11 : 13);
+  mapInstance = L.map('client-map', { keyboard: false }).setView([centerLat, centerLng], count > 1 ? 11 : 13);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap contributors'
   }).addTo(mapInstance);
