@@ -675,6 +675,31 @@ function initModalGoogleMap(lat, lng) {
     });
   }
 
+  const searchBtn = document.querySelector('#searchAddressBtn');
+  if (searchBtn && addressInput) {
+    searchBtn.onclick = () => {
+      const address = addressInput.value;
+      if (!address) return;
+      const geocoder = new google.maps.Geocoder();
+      geocoder.geocode({ address: address }, (results, status) => {
+        if (status === 'OK' && results[0]) {
+          const loc = results[0].geometry.location;
+          googleMapInstance.setCenter(loc);
+          googleMapInstance.setZoom(16);
+          googleMarkerInstance.setPosition(loc);
+
+          selectedLat = loc.lat();
+          selectedLng = loc.lng();
+          document.querySelector('#latInput').value = selectedLat;
+          document.querySelector('#lngInput').value = selectedLng;
+          addressInput.value = results[0].formatted_address;
+        } else {
+          alert('No se pudo encontrar esa dirección en Google Maps.');
+        }
+      });
+    };
+  }
+
   // Click Map handler
   googleMapInstance.addListener('click', (e) => {
     const loc = e.latLng;
@@ -734,7 +759,10 @@ function openPropertyModal() {
       
       <div style="margin-bottom:12px;">
         <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Dirección Física (Autocomplete de Google Maps)</label>
-        <input id="addressAutocomplete" name="address" required placeholder="Empieza a escribir la calle, número o lugar..." style="width:100%;" autocomplete="off">
+        <div style="display:flex;gap:6px;">
+          <input id="addressAutocomplete" name="address" required placeholder="Empieza a escribir la calle, número o lugar..." style="flex:1;margin:0;" autocomplete="off">
+          <button type="button" class="btn-action" id="searchAddressBtn" style="background:var(--gold);color:#171106;padding:0 15px;font-weight:bold;">Buscar</button>
+        </div>
       </div>
 
       <div style="margin-bottom:12px;">
@@ -833,7 +861,10 @@ function openEditPropertyModal(id) {
       
       <div style="margin-bottom:12px;">
         <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Dirección Física (Autocomplete de Google Maps)</label>
-        <input id="addressAutocomplete" name="address" required value="${p.address || ''}" style="width:100%;" autocomplete="off">
+        <div style="display:flex;gap:6px;">
+          <input id="addressAutocomplete" name="address" required value="${p.address || ''}" style="flex:1;margin:0;" autocomplete="off">
+          <button type="button" class="btn-action" id="searchAddressBtn" style="background:var(--gold);color:#171106;padding:0 15px;font-weight:bold;">Buscar</button>
+        </div>
       </div>
 
       <div style="margin-bottom:12px;">
