@@ -1831,117 +1831,160 @@ window.downloadPayrollPDF = async function(id) {
   const p = payrolls.find(x => x.id === id);
   if (!p) { alert('Recibo no encontrado.'); return; }
   await loadJsPDF();
+  
+  // Load logo.jpg dynamically
+  const img = new Image();
+  img.src = '/logo.jpg';
+  img.onload = () => {
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth || img.width;
+      canvas.height = img.naturalHeight || img.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      const logoDataUrl = canvas.toDataURL('image/jpeg');
+      generatePDF(p, logoDataUrl);
+    } catch (err) {
+      console.warn('Fallo al renderizar logo de imagen en Canvas, usando vectores fallback:', err);
+      generatePDF(p, null);
+    }
+  };
+  img.onerror = () => {
+    generatePDF(p, null);
+  };
+};
+
+function generatePDF(p, logoDataUrl) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation:'portrait', unit:'mm', format:'letter' });
   const W = 216, H = 279, M = 12;
   const fmt = n => '$' + Number(n||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});
 
-  // Header dark bg
-  doc.setFillColor(15,17,22); doc.rect(0,0,W,52,'F');
-  doc.setFillColor(212,168,78); doc.rect(0,0,4,52,'F');
+  // Colores corporativos HTJ (Oscuro y Oro)
+  const cDark = [15, 17, 22];
+  const cGold = [212, 168, 78];
+  const cGreen = [39, 174, 96];
+  const cRed = [200, 50, 50];
 
-  // Logo area
-  doc.setFillColor(212,168,78); doc.circle(26,25,13,'F');
-  doc.setFillColor(15,17,22); doc.circle(26,25,11,'F');
-  doc.setTextColor(212,168,78); doc.setFont('helvetica','bold'); doc.setFontSize(7);
-  doc.text('HTJ',26,22,{align:'center'}); doc.setFontSize(5); doc.text('HOTEL',26,26,{align:'center'});
+  // Header background
+  doc.setFillColor(...cDark); doc.rect(0,0,W,52,'F');
+  doc.setFillColor(...cGold); doc.rect(0,0,4,52,'F');
 
-  // Company name
-  doc.setTextColor(255,255,255); doc.setFontSize(13); doc.setFont('helvetica','bold');
-  doc.text('HTJ HOSPEDAJE TAXI JU\u00c1REZ', 44, 16);
+  // Draw logo image
+  if (logoDataUrl) {
+    try {
+      doc.addImage(logoDataUrl, 'JPEG', M + 1, 8, 36, 36);
+    } catch (e) {
+      console.error(e);
+    }
+  } else {
+    // Vector fallback logo
+    doc.setFillColor(...cGold); doc.circle(M + 19, 26, 14, 'F');
+    doc.setFillColor(...cDark); doc.circle(M + 19, 26, 12, 'F');
+    doc.setTextColor(...cGold); doc.setFont('helvetica','bold'); doc.setFontSize(8);
+    doc.text('HTJ', M + 19, 23, {align:'center'}); doc.setFontSize(5); doc.text('HOTEL', M + 19, 27, {align:'center'});
+  }
+
+  // Company text (shifted right of logo)
+  doc.setTextColor(255,255,255); doc.setFontSize(14); doc.setFont('helvetica','bold');
+  doc.text('HTJ HOSPEDAJE TAXI JU\u00c1REZ', M + 42, 16);
   doc.setFontSize(7.5); doc.setFont('helvetica','normal'); doc.setTextColor(170,170,170);
-  doc.text('Recibo de N\u00f3mina Oficial', 44, 22);
-  doc.text('Ciudad Ju\u00e1rez, Chihuahua, M\u00e9xico', 44, 27);
-  doc.text('Sistema HTJ OPS v2 — Generado el ' + new Date().toLocaleDateString('es-MX'), 44, 32);
+  doc.text('Recibo de N\u00f3mina Oficial - Sistema de Operaciones HTJ', M + 42, 22);
+  doc.text('RFC: HTJ-081026-XX9 | Direcci\u00f3n: Av. Tecnol\u00f3gico, Cd. Ju\u00e1rez, Chih.', M + 42, 27);
+  doc.text('Contacto: +52 656 322 4787 | Soportado por Sistema Tress v3', M + 42, 32);
 
   // Folio box
-  doc.setFillColor(25,27,36); doc.roundedRect(132,8,72,36,3,3,'F');
-  doc.setTextColor(212,168,78); doc.setFont('helvetica','bold'); doc.setFontSize(7);
-  doc.text('RECIBO DE N\u00d3MINA',168,14,{align:'center'});
-  doc.setFontSize(8); doc.setTextColor(255,255,255);
-  doc.text('No. '+p.id.substring(0,8).toUpperCase(),168,21,{align:'center'});
+  doc.setFillColor(25,27,36); doc.roundedRect(138,8,66,36,3,3,'F');
+  doc.setTextColor(...cGold); doc.setFont('helvetica','bold'); doc.setFontSize(7.5);
+  doc.text('RECIBO DE N\u00d3MINA', 171, 14, {align:'center'});
+  doc.setFontSize(8.5); doc.setTextColor(255,255,255);
+  doc.text('No. '+p.id.substring(0,8).toUpperCase(), 171, 21, {align:'center'});
   doc.setFontSize(7); doc.setTextColor(160,160,160); doc.setFont('helvetica','normal');
-  doc.text('Estado: '+(p.status==='PAID'?'\u2713 PAGADO':p.status==='APPROVED'?'APROBADO':'BORRADOR'),168,27,{align:'center'});
-  doc.text('Fecha: '+new Date().toLocaleDateString('es-MX'),168,33,{align:'center'});
+  doc.text('Estado: '+(p.status==='PAID'?'\u2713 PAGADO':p.status==='APPROVED'?'APROBADO':'BORRADOR'), 171, 27, {align:'center'});
+  doc.text('Periodo: ' + new Date(p.periodStart).toLocaleDateString('es-MX') + ' al ' + new Date(p.periodEnd).toLocaleDateString('es-MX'), 171, 33, {align:'center'});
 
   // Section: Datos Empleado
   let y = 57;
-  doc.setFillColor(212,168,78); doc.rect(M,y,W-M*2,7,'F');
-  doc.setTextColor(15,17,22); doc.setFont('helvetica','bold'); doc.setFontSize(8);
+  doc.setFillColor(...cGold); doc.rect(M,y,W-M*2,7,'F');
+  doc.setTextColor(...cDark); doc.setFont('helvetica','bold'); doc.setFontSize(8);
   doc.text('DATOS DEL EMPLEADO', M+3, y+5); y+=8;
   doc.setFillColor(244,244,248); doc.rect(M,y,W-M*2,30,'F');
   const c1=M+3,c2=80,c3=140,lh=7;
   doc.setFont('helvetica','bold'); doc.setFontSize(6.5); doc.setTextColor(120,120,120);
-  doc.text('NOMBRE COMPLETO:',c1,y+lh); doc.text('N\u00b0 RELOJ:',c2,y+lh); doc.text('PUESTO / ROL:',c3,y+lh);
-  doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(15,17,22);
+  doc.text('NOMBRE COMPLETO:',c1,y+lh); doc.text('N\u00b0 DE RELOJ:',c2,y+lh); doc.text('PUESTO / ROL:',c3,y+lh);
+  doc.setFont('helvetica','bold'); doc.setFontSize(9.5); doc.setTextColor(...cDark);
   doc.text((p.employeeName||'').toUpperCase(),c1,y+lh*2);
-  doc.setTextColor(212,168,78); doc.text('#'+(p.clockNumber||'----'),c2,y+lh*2);
-  doc.setTextColor(15,17,22); doc.text(p.employeeRole||'',c3,y+lh*2);
+  doc.setTextColor(...cGold); doc.text('#'+(p.clockNumber||'----'),c2,y+lh*2);
+  doc.setTextColor(...cDark); doc.text(p.employeeRole||'',c3,y+lh*2);
   doc.setFont('helvetica','bold'); doc.setFontSize(6.5); doc.setTextColor(120,120,120);
   doc.text('CORREO:',c1,y+lh*3); doc.text('PERIODO INICIO:',c2,y+lh*3); doc.text('PERIODO FIN:',c3,y+lh*3);
-  doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(15,17,22);
+  doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(...cDark);
   doc.text(p.employeeEmail||'',c1,y+lh*3.7);
   doc.text(new Date(p.periodStart).toLocaleDateString('es-MX'),c2,y+lh*3.7);
   doc.text(new Date(p.periodEnd).toLocaleDateString('es-MX'),c3,y+lh*3.7); y+=33;
 
   // Percepciones & Deducciones side by side
   const hw=(W-M*2-5)/2;
-  doc.setFillColor(39,174,96); doc.rect(M,y,hw,7,'F');
-  doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(7.5);
+  doc.setFillColor(...cGreen); doc.rect(M,y,hw,7,'F');
+  doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(8);
   doc.text('PERCEPCIONES',M+3,y+5);
-  doc.setFillColor(200,50,50); doc.rect(M+hw+5,y,hw,7,'F');
+  doc.setFillColor(...cRed); doc.rect(M+hw+5,y,hw,7,'F');
   doc.text('DEDUCCIONES',M+hw+8,y+5); y+=8;
 
+  // Read actual details
   const PR=[
     ['Salario Base',fmt(p.gross)],
-    ['Horas Extras ('+(p.overtimeHours||0)+' hrs)',fmt(p.overtimePay)],
-    ['Bono de Asistencia',fmt(p.attendanceBonus)],
-    ['Bono de Puntualidad',fmt(p.punctualityBonus)]
+    ['Horas Extras ('+(p.overtime_hours||p.overtimeHours||0)+' hrs)',fmt(p.overtime_pay||p.overtimePay)],
+    ['Bono de Asistencia',fmt(p.attendance_bonus||p.attendanceBonus)],
+    ['Bono de Puntualidad',fmt(p.punctuality_bonus||p.punctualityBonus)],
+    ['Otros Ingresos',fmt((p.other_deductions||{}).otrosIngresos||0)]
   ];
   const DR=[
-    ['IMSS (Cuota Trabajador)',fmt(p.imssEmployee)],
+    ['IMSS (Cuota Trabajador)',fmt(p.imss_employee||p.imssEmployee)],
     ['ISR Retenido',fmt(p.isr)],
     ['INFONAVIT',fmt(p.infonavit)],
-    ['FONACOT',fmt(p.fonacot)]
+    ['FONACOT',fmt(p.fonacot)],
+    ['Otras Deducciones',fmt((p.other_deductions||{}).otros||0)]
   ];
   const maxR=Math.max(PR.length,DR.length), rh=7;
   for(let i=0;i<maxR;i++){
     doc.setFillColor(i%2===0?245:255,i%2===0?250:255,i%2===0?247:255); doc.rect(M,y+i*rh,hw,rh,'F');
     doc.setFillColor(i%2===0?250:255,i%2===0?245:255,i%2===0?245:255); doc.rect(M+hw+5,y+i*rh,hw,rh,'F');
-    if(PR[i]){doc.setFont('helvetica','normal');doc.setFontSize(7);doc.setTextColor(15,17,22);doc.text(PR[i][0],M+3,y+i*rh+5);doc.setFont('helvetica','bold');doc.setTextColor(39,174,96);doc.text(PR[i][1],M+hw-3,y+i*rh+5,{align:'right'});}
-    if(DR[i]){doc.setFont('helvetica','normal');doc.setFontSize(7);doc.setTextColor(15,17,22);doc.text(DR[i][0],M+hw+8,y+i*rh+5);doc.setFont('helvetica','bold');doc.setTextColor(200,50,50);doc.text(DR[i][1],W-M-3,y+i*rh+5,{align:'right'});}
+    if(PR[i]){doc.setFont('helvetica','normal');doc.setFontSize(7.5);doc.setTextColor(...cDark);doc.text(PR[i][0],M+3,y+i*rh+5);doc.setFont('helvetica','bold');doc.setTextColor(...cGreen);doc.text(PR[i][1],M+hw-3,y+i*rh+5,{align:'right'});}
+    if(DR[i]){doc.setFont('helvetica','normal');doc.setFontSize(7.5);doc.setTextColor(...cDark);doc.text(DR[i][0],M+hw+8,y+i*rh+5);doc.setFont('helvetica','bold');doc.setTextColor(...cRed);doc.text(DR[i][1],W-M-3,y+i*rh+5,{align:'right'});}
   }
   y+=maxR*rh;
-  const tP=(p.gross||0)+(p.overtimePay||0)+(p.attendanceBonus||0)+(p.punctualityBonus||0);
-  const tD=(p.imssEmployee||0)+(p.isr||0)+(p.infonavit||0)+(p.fonacot||0);
-  doc.setFillColor(39,174,96); doc.rect(M,y,hw,8,'F');
+  const tP=(p.gross||0)+(p.overtime_pay||p.overtimePay||0)+(p.attendance_bonus||p.attendanceBonus||0)+(p.punctuality_bonus||p.punctualityBonus||0)+parseFloat((p.other_deductions||{}).otrosIngresos||0);
+  const tD=(p.imss_employee||p.imssEmployee||0)+(p.isr||0)+(p.infonavit||0)+(p.fonacot||0)+parseFloat((p.other_deductions||{}).otros||0);
+  doc.setFillColor(...cGreen); doc.rect(M,y,hw,8,'F');
   doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(7.5);
   doc.text('TOTAL PERCEPCIONES:',M+3,y+5.5); doc.text(fmt(tP),M+hw-3,y+5.5,{align:'right'});
-  doc.setFillColor(200,50,50); doc.rect(M+hw+5,y,hw,8,'F');
+  doc.setFillColor(...cRed); doc.rect(M+hw+5,y,hw,8,'F');
   doc.text('TOTAL DEDUCCIONES:',M+hw+8,y+5.5); doc.text(fmt(tD),W-M-3,y+5.5,{align:'right'}); y+=12;
 
   // NETO
-  doc.setFillColor(212,168,78); doc.roundedRect(M,y,W-M*2,16,3,3,'F');
-  doc.setTextColor(15,17,22); doc.setFont('helvetica','bold'); doc.setFontSize(11);
-  doc.text('NETO A PAGAR:',M+5,y+10);
-  doc.setFontSize(14); doc.text(fmt(p.net),W-M-5,y+11,{align:'right'}); y+=20;
+  doc.setFillColor(...cDark); doc.roundedRect(M,y,W-M*2,16,3,3,'F');
+  doc.setFillColor(...cGold); doc.roundedRect(M+0.8,y+0.8,W-M*2-1.6,14.4,2,2,'F');
+  doc.setTextColor(...cDark); doc.setFont('helvetica','bold'); doc.setFontSize(11);
+  doc.text('NETO A PAGAR:',M+5,y+9.5);
+  doc.setFontSize(14.5); doc.text(fmt(p.net),W-M-5,y+10.5,{align:'right'}); y+=20;
 
   // Checadas
   const entries=Array.isArray(p.time_entries)?p.time_entries:[];
   if(entries.length>0){
     doc.setFillColor(50,80,140); doc.rect(M,y,W-M*2,7,'F');
     doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(7.5);
-    doc.text('REGISTRO DE CHECADAS',M+3,y+5); y+=8;
+    doc.text('REGISTRO DE CHECADAS DE HORA (ENTRADAS / SALIDAS)',M+3,y+5); y+=8;
     doc.setFillColor(235,235,242); doc.rect(M,y,W-M*2,6,'F');
     doc.setTextColor(100,100,100); doc.setFont('helvetica','bold'); doc.setFontSize(7);
-    doc.text('#',M+3,y+4.2); doc.text('FECHA Y HORA',M+12,y+4.2); doc.text('TIPO',M+90,y+4.2); y+=6;
+    doc.text('#',M+3,y+4.2); doc.text('FECHA Y HORA DE REGISTRO',M+12,y+4.2); doc.text('TIPO',M+90,y+4.2); y+=6;
     entries.forEach((entry,i)=>{
       const bg=i%2===0?[248,248,252]:[255,255,255];
       doc.setFillColor(...bg); doc.rect(M,y,W-M*2,6,'F');
-      doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(15,17,22);
+      doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(...cDark);
       doc.text(String(i+1),M+3,y+4);
       doc.text(entry.timestamp?new Date(entry.timestamp).toLocaleString('es-MX'):'-',M+12,y+4);
-      if(entry.type==='ENTRADA')doc.setTextColor(39,174,96); else doc.setTextColor(200,50,50);
+      if(entry.type==='ENTRADA')doc.setTextColor(...cGreen); else doc.setTextColor(...cRed);
       doc.setFont('helvetica','bold'); doc.text(entry.type||'-',M+90,y+4); y+=6;
     }); y+=4;
   }
@@ -1950,8 +1993,8 @@ window.downloadPayrollPDF = async function(id) {
   if(p.notes){
     doc.setFillColor(244,244,248); doc.rect(M,y,W-M*2,16,'F');
     doc.setTextColor(100,100,100); doc.setFont('helvetica','bold'); doc.setFontSize(7);
-    doc.text('NOTAS:',M+3,y+5);
-    doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(15,17,22);
+    doc.text('NOTAS / OBSERVACIONES:',M+3,y+5);
+    doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(...cDark);
     doc.text(doc.splitTextToSize(p.notes,W-M*2-8),M+3,y+10); y+=20;
   }
 
@@ -1965,9 +2008,9 @@ window.downloadPayrollPDF = async function(id) {
   doc.text('SELLO EMPRESA',M+176,y+4,{align:'center'});
 
   // Footer
-  doc.setFillColor(15,17,22); doc.rect(0,H-10,W,10,'F');
-  doc.setTextColor(212,168,78); doc.setFont('helvetica','bold'); doc.setFontSize(6);
+  doc.setFillColor(...cDark); doc.rect(0,H-10,W,10,'F');
+  doc.setTextColor(...cGold); doc.setFont('helvetica','bold'); doc.setFontSize(6);
   doc.text('HTJ HOSPEDAJE TAXI JU\u00c1REZ — Documento oficial generado por Sistema HTJ OPS v2 — Ciudad Ju\u00e1rez, Chih.',W/2,H-4,{align:'center'});
 
   doc.save(`Nomina_${(p.employeeName||'empleado').replace(/ /g,'_')}_${p.periodStart}.pdf`);
-};
+}
