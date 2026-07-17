@@ -1,3 +1,3 @@
-HTJ HOTEL ULTRA PREMIUM V4
-Portal de clientes premium, login inspiracional, formularios operativos, promociones, sincronizacion y logo oficial HTJ.
+HTJ HOTEL ULTRA PREMIUM V5
+Portal premium, propietario maestro automatico, login inspiracional, formularios operativos, promociones y sincronizacion.
 Este archivo identifica la entrega correcta para el actualizador de GitHub y Railway.

@@ -26,6 +26,27 @@ const clientDatabaseUrl=process.env.CLIENT_DATABASE_URL||(process.env.DATABASE_U
 const clientPool=clientDatabaseUrl?new pg.Pool({connectionString:clientDatabaseUrl,ssl:process.env.NODE_ENV==='production'?{rejectUnauthorized:false}:false}):null;
 const qc=async(t,v=[])=>{if(!clientPool)throw Error('Client DB pool no disponible');return clientPool.query(t,v)};
 
+// Propietario maestro: promoción segura e idempotente desde Variables de Railway.
+// Si la cuenta ya existe conserva su contraseña; si no existe puede crearse una
+// sola vez proporcionando OWNER_INITIAL_PASSWORD.
+async function ensureOwnerAccount(){
+  const email=String(process.env.OWNER_EMAIL||'').trim().toLowerCase();
+  if(!email)return;
+  const existing=await q("UPDATE employees SET role='SUPER_ADMIN',active=true WHERE lower(email)=lower($1) RETURNING id,email,name,role,active",[email]);
+  if(existing.rows[0]){
+    console.log(`Cuenta propietaria verificada: ${existing.rows[0].email}`);
+    return;
+  }
+  const initialPassword=String(process.env.OWNER_INITIAL_PASSWORD||'');
+  if(initialPassword.length<12){
+    console.error('OWNER_EMAIL no existe y OWNER_INITIAL_PASSWORD debe tener al menos 12 caracteres');
+    return;
+  }
+  const passwordHash=await hash(initialPassword);
+  await q("INSERT INTO employees(email,name,password_hash,role,active,clock_number) VALUES($1,$2,$3,'SUPER_ADMIN',true,COALESCE((SELECT max(clock_number)+1 FROM employees),1000))",[email,process.env.OWNER_NAME||'Propietario General HTJ',passwordHash]);
+  console.log(`Cuenta propietaria creada: ${email}`);
+}
+
 // ── AUTENTICACIÓN DE EMPLEADOS ──────────────────────────────────────────────
 app.post('/v1/auth/login',safe(async(req,res)=>{
   const data=z.object({email:z.string().email(),password:z.string().min(8).max(128)}).parse(req.body);
@@ -365,6 +386,7 @@ await q(`CREATE TABLE IF NOT EXISTS cleaning_tasks(
   created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS cleaning_tasks_status_idx ON cleaning_tasks(status,requested_for);`);
+await ensureOwnerAccount();
 
 app.listen(process.env.PORT||4001,()=>{
   console.log('API empleados lista v3 — sincronización automática activa');
