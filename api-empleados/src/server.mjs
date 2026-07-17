@@ -38,8 +38,8 @@ async function ensureOwnerAccount(){
     return;
   }
   const initialPassword=String(process.env.OWNER_INITIAL_PASSWORD||'');
-  if(initialPassword.length<12){
-    console.error('OWNER_EMAIL no existe y OWNER_INITIAL_PASSWORD debe tener al menos 12 caracteres');
+  if(initialPassword.length<8){
+    console.error('OWNER_EMAIL no existe y OWNER_INITIAL_PASSWORD debe tener al menos 8 caracteres');
     return;
   }
   const passwordHash=await hash(initialPassword);
