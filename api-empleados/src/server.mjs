@@ -1,4 +1,4 @@
-import express from'express';import helmet from'helmet';import cors from'cors';import{rateLimit}from'express-rate-limit';import{z}from'zod';import{q}from'./db.mjs';import pg from'pg';import{hash,verify}from'@node-rs/argon2';import{SignJWT,jwtVerify}from'jose';
+import express from'express';import helmet from'helmet';import cors from'cors';import{rateLimit}from'express-rate-limit';import{z}from'zod';import{q}from'./db.mjs';import pg from'pg';import{hash,verify}from'@node-rs/argon2';import{SignJWT,jwtVerify}from'jose';import{randomBytes}from'node:crypto';
 const app=express();
 app.disable('x-powered-by');
 app.use(helmet());
@@ -31,11 +31,15 @@ app.post('/v1/auth/login',safe(async(req,res)=>{
   const data=z.object({email:z.string().email(),password:z.string().min(8).max(128)}).parse(req.body);
   const {rows}=await q('SELECT * FROM employees WHERE email=lower($1) AND active=true',[data.email]);
   if(!rows[0]||!await verify(rows[0].password_hash,data.password))return res.status(401).json({error:'Correo o contraseña incorrectos'});
-  const employee={id:rows[0].id,email:rows[0].email,name:rows[0].name,role:rows[0].role,clockNumber:rows[0].clock_number};
+  await q('UPDATE employees SET last_login_at=now() WHERE id=$1',[rows[0].id]);
+  const employee={id:rows[0].id,email:rows[0].email,name:rows[0].name,role:rows[0].role,clockNumber:rows[0].clock_number,mustChangePassword:Boolean(rows[0].force_password_change)};
   res.json({employee,accessToken:await employeeToken(rows[0])});
 }));
 
-app.get('/v1/auth/me',role('SUPER_ADMIN','MANAGER','FINANCE','RECEPTION','HOUSEKEEPING','MAINTENANCE'),safe(async(req,res)=>res.json({id:req.employee.id,email:req.employee.email,name:req.employee.name,role:req.employee.role,clockNumber:req.employee.clock_number})));
+app.get('/v1/auth/me',role('SUPER_ADMIN','MANAGER','FINANCE','RECEPTION','HOUSEKEEPING','MAINTENANCE'),safe(async(req,res)=>{const row=(await q('SELECT force_password_change FROM employees WHERE id=$1',[req.employee.id])).rows[0];res.json({id:req.employee.id,email:req.employee.email,name:req.employee.name,role:req.employee.role,clockNumber:req.employee.clock_number,mustChangePassword:Boolean(row?.force_password_change)})}));
+
+app.post('/v1/auth/forgot-password',safe(async(req,res)=>{const d=z.object({email:z.string().email()}).parse(req.body);const employee=(await q('SELECT id,name FROM employees WHERE email=lower($1) AND active=true',[d.email])).rows[0];if(employee){await q(`INSERT INTO password_reset_requests(employee_id,status,requested_at) VALUES($1,'PENDING',now()) ON CONFLICT(employee_id) WHERE status='PENDING' DO UPDATE SET requested_at=now()`,[employee.id]);await q(`INSERT INTO notifications(role_target,title,message,link_tab,resource_key) VALUES('SUPER_ADMIN','Solicitud de contraseña',$1,'personal',$2) ON CONFLICT(resource_key) DO UPDATE SET read_at=NULL,created_at=now(),message=EXCLUDED.message`,[`${employee.name} solicitó recuperar su acceso.`,`password-reset:${employee.id}`])}res.json({message:'Si la cuenta existe, la solicitud fue enviada al administrador.'})}));
+app.post('/v1/auth/change-password',role('SUPER_ADMIN','MANAGER','FINANCE','RECEPTION','HOUSEKEEPING','MAINTENANCE'),safe(async(req,res)=>{const d=z.object({currentPassword:z.string().optional(),newPassword:z.string().min(12).max(128)}).parse(req.body);const employee=(await q('SELECT password_hash,force_password_change FROM employees WHERE id=$1',[req.employee.id])).rows[0];if(!employee.force_password_change&&(!d.currentPassword||!await verify(employee.password_hash,d.currentPassword)))return res.status(400).json({error:'La contraseña actual no es correcta'});await q('UPDATE employees SET password_hash=$1,force_password_change=false,password_changed_at=now() WHERE id=$2',[await hash(d.newPassword),req.employee.id]);await q(`UPDATE password_reset_requests SET status='COMPLETED',completed_at=now() WHERE employee_id=$1 AND status IN('PENDING','ISSUED')`,[req.employee.id]);res.json({success:true})}));
 
 const syncUrls=[
   process.env.CLIENT_API_URL,
@@ -280,22 +284,24 @@ app.put('/v1/reservations/:id',role('SUPER_ADMIN','MANAGER','RECEPTION'),safe(as
 app.delete('/v1/reservations/:id',role('SUPER_ADMIN','MANAGER','RECEPTION'),safe(async(req,res)=>{await qc('DELETE FROM reservations WHERE id=$1',[req.params.id]);res.json({success:true})}));
 
 // ── EMPLEADOS ─────────────────────────────────────────────────────────────────
-app.get('/v1/employees',role('SUPER_ADMIN','MANAGER'),safe(async(_,res)=>{res.json({items:(await q('SELECT id,email,name,role,active,clock_number,created_at FROM employees ORDER BY clock_number ASC NULLS LAST, created_at DESC')).rows})}));
+app.get('/v1/employees',role('SUPER_ADMIN','MANAGER'),safe(async(_,res)=>{res.json({items:(await q('SELECT id,email,name,role,active,clock_number,force_password_change,password_changed_at,last_login_at,created_at FROM employees ORDER BY clock_number ASC NULLS LAST, created_at DESC')).rows})}));
 
 app.post('/v1/employees',role('SUPER_ADMIN'),safe(async(req,res)=>{
-  const d=z.object({email:z.string().email(),password:z.string().min(8),name:z.string().min(2),role:z.string()}).parse(req.body);
+  const d=z.object({email:z.string().email(),password:z.string().min(12),name:z.string().min(2),role:z.enum(['SUPER_ADMIN','MANAGER','FINANCE','RECEPTION','HOUSEKEEPING','MAINTENANCE'])}).parse(req.body);
   const hp=await hash(d.password);
-  const {rows}=await q("INSERT INTO employees(email,name,password_hash,role,clock_number) VALUES(lower($1),$2,$3,$4,nextval('employee_clock_seq')) RETURNING id,email,name,role,active,clock_number,created_at",[d.email,d.name,hp,d.role]);
+  const {rows}=await q("INSERT INTO employees(email,name,password_hash,role,clock_number,force_password_change) VALUES(lower($1),$2,$3,$4,nextval('employee_clock_seq'),true) RETURNING id,email,name,role,active,clock_number,force_password_change,created_at",[d.email,d.name,hp,d.role]);
   res.status(201).json(rows[0]);
 }));
 
 app.put('/v1/employees/:id',role('SUPER_ADMIN'),safe(async(req,res)=>{
-  const d=z.object({name:z.string().min(2),email:z.string().email(),role:z.string(),active:z.boolean().optional(),password:z.string().min(8).optional()}).parse(req.body);
-  if(d.password){const hp=await hash(d.password);const {rows}=await q('UPDATE employees SET name=$1,email=lower($2),role=$3,active=COALESCE($4,active),password_hash=$5 WHERE id=$6 RETURNING id,email,name,role,active,clock_number',[d.name,d.email,d.role,d.active,hp,req.params.id]);return res.json(rows[0])}
+  const d=z.object({name:z.string().min(2),email:z.string().email(),role:z.enum(['SUPER_ADMIN','MANAGER','FINANCE','RECEPTION','HOUSEKEEPING','MAINTENANCE']),active:z.boolean().optional(),password:z.string().min(12).optional()}).parse(req.body);
+  if(d.password){const hp=await hash(d.password);const {rows}=await q('UPDATE employees SET name=$1,email=lower($2),role=$3,active=COALESCE($4,active),password_hash=$5,force_password_change=true WHERE id=$6 RETURNING id,email,name,role,active,clock_number,force_password_change',[d.name,d.email,d.role,d.active,hp,req.params.id]);return res.json(rows[0])}
   else{const {rows}=await q('UPDATE employees SET name=$1,email=lower($2),role=$3,active=COALESCE($4,active) WHERE id=$5 RETURNING id,email,name,role,active,clock_number',[d.name,d.email,d.role,d.active,req.params.id]);return res.json(rows[0])}
 }));
 
 app.delete('/v1/employees/:id',role('SUPER_ADMIN'),safe(async(req,res)=>{await q('DELETE FROM employees WHERE id=$1',[req.params.id]);res.json({success:true})}));
+app.get('/v1/password-resets',role('SUPER_ADMIN'),safe(async(_,res)=>res.json({items:(await q(`SELECT pr.id,pr.status,pr.requested_at,pr.issued_at,pr.completed_at,e.id AS employee_id,e.name,e.email,e.role,e.clock_number FROM password_reset_requests pr JOIN employees e ON e.id=pr.employee_id ORDER BY CASE pr.status WHEN 'PENDING' THEN 1 WHEN 'ISSUED' THEN 2 ELSE 3 END,pr.requested_at DESC`)).rows})));
+app.post('/v1/employees/:id/temporary-password',role('SUPER_ADMIN'),safe(async(req,res)=>{const temporary=`HTJ-${randomBytes(7).toString('base64url')}!7`;const employee=(await q('UPDATE employees SET password_hash=$1,force_password_change=true,password_changed_at=now() WHERE id=$2 RETURNING id,email,name',[await hash(temporary),req.params.id])).rows[0];if(!employee)return res.status(404).json({error:'Empleado no encontrado'});await q(`UPDATE password_reset_requests SET status='ISSUED',issued_at=now(),issued_by=$2 WHERE employee_id=$1 AND status='PENDING'`,[employee.id,req.employee.id]);res.json({employee,temporaryPassword:temporary,message:'Esta contraseña solamente se muestra una vez.'})}));
 
 // ── NÓMINA ────────────────────────────────────────────────────────────────────
 app.get('/v1/payroll',role('SUPER_ADMIN','MANAGER','FINANCE'),safe(async(_,res)=>{
@@ -509,6 +515,11 @@ CREATE TABLE IF NOT EXISTS contacts(id uuid PRIMARY KEY DEFAULT gen_random_uuid(
 CREATE TABLE IF NOT EXISTS digital_notes(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),owner_id uuid NOT NULL REFERENCES employees(id) ON DELETE CASCADE,title text NOT NULL,body text DEFAULT '',color text DEFAULT 'gold',pinned boolean DEFAULT false,due_at timestamptz,created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now());
 CREATE TABLE IF NOT EXISTS calendar_events(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),owner_id uuid REFERENCES employees(id) ON DELETE CASCADE,scope text NOT NULL DEFAULT 'PERSONAL',title text NOT NULL,description text DEFAULT '',starts_at timestamptz NOT NULL,ends_at timestamptz,department text,location text,created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now());
 CREATE TABLE IF NOT EXISTS business_documents(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),folio bigserial UNIQUE,document_type text NOT NULL,title text NOT NULL,recipient_name text,recipient_email text,concepts jsonb NOT NULL DEFAULT '[]',subtotal numeric(12,2) DEFAULT 0,tax numeric(12,2) DEFAULT 0,total numeric(12,2) DEFAULT 0,notes text,attachment jsonb,created_by uuid REFERENCES employees(id) ON DELETE SET NULL,created_at timestamptz DEFAULT now());
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS force_password_change boolean DEFAULT false;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS password_changed_at timestamptz;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS last_login_at timestamptz;
+CREATE TABLE IF NOT EXISTS password_reset_requests(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),employee_id uuid NOT NULL REFERENCES employees(id) ON DELETE CASCADE,status text NOT NULL DEFAULT 'PENDING',requested_at timestamptz DEFAULT now(),issued_at timestamptz,issued_by uuid REFERENCES employees(id) ON DELETE SET NULL,completed_at timestamptz);
+CREATE UNIQUE INDEX IF NOT EXISTS password_reset_one_pending_idx ON password_reset_requests(employee_id) WHERE status='PENDING';
 CREATE INDEX IF NOT EXISTS work_tickets_department_status_idx ON work_tickets(department,status,created_at DESC);
 CREATE INDEX IF NOT EXISTS notifications_employee_idx ON notifications(employee_id,read_at,created_at DESC);`);
 

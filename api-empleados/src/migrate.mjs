@@ -49,6 +49,11 @@ CREATE TABLE IF NOT EXISTS contacts(id uuid PRIMARY KEY DEFAULT gen_random_uuid(
 CREATE TABLE IF NOT EXISTS digital_notes(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),owner_id uuid NOT NULL REFERENCES employees(id) ON DELETE CASCADE,title text NOT NULL,body text DEFAULT '',color text DEFAULT 'gold',pinned boolean DEFAULT false,due_at timestamptz,created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now());
 CREATE TABLE IF NOT EXISTS calendar_events(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),owner_id uuid REFERENCES employees(id) ON DELETE CASCADE,scope text NOT NULL DEFAULT 'PERSONAL',title text NOT NULL,description text DEFAULT '',starts_at timestamptz NOT NULL,ends_at timestamptz,department text,location text,created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now());
 CREATE TABLE IF NOT EXISTS business_documents(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),folio bigserial UNIQUE,document_type text NOT NULL,title text NOT NULL,recipient_name text,recipient_email text,concepts jsonb NOT NULL DEFAULT '[]',subtotal numeric(12,2) DEFAULT 0,tax numeric(12,2) DEFAULT 0,total numeric(12,2) DEFAULT 0,notes text,attachment jsonb,created_by uuid REFERENCES employees(id) ON DELETE SET NULL,created_at timestamptz DEFAULT now());
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS force_password_change boolean DEFAULT false;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS password_changed_at timestamptz;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS last_login_at timestamptz;
+CREATE TABLE IF NOT EXISTS password_reset_requests(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),employee_id uuid NOT NULL REFERENCES employees(id) ON DELETE CASCADE,status text NOT NULL DEFAULT 'PENDING',requested_at timestamptz DEFAULT now(),issued_at timestamptz,issued_by uuid REFERENCES employees(id) ON DELETE SET NULL,completed_at timestamptz);
+CREATE UNIQUE INDEX IF NOT EXISTS password_reset_one_pending_idx ON password_reset_requests(employee_id) WHERE status='PENDING';
 CREATE INDEX IF NOT EXISTS work_tickets_department_status_idx ON work_tickets(department,status,created_at DESC);
 CREATE INDEX IF NOT EXISTS notifications_employee_idx ON notifications(employee_id,read_at,created_at DESC);
 `);

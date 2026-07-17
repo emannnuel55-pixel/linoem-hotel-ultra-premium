@@ -11,6 +11,7 @@ let employees = [];
 let payrolls = [];
 let promotions = [];
 let cleaningTasks = [];
+let passwordResetRequests = [];
 let workTickets = [], notifications = [], contacts = [], staffDirectory = [], digitalNotes = [], calendarEvents = [], businessDocuments = [], confidentialMessages = [];
 let workspaceSummary = {open:0,urgent:0,unread:0};
 let currentEmployee = null;
@@ -65,8 +66,9 @@ async function load() {
       return renderEmployeeLogin('Tu sesión venció. Ingresa nuevamente.');
     }
   }
+  if (currentEmployee?.mustChangePassword) return renderForcedPasswordChange();
   try {
-    const [resDash, resProp, resExp, resUsers, resRes, resEmp, resPay, resPromos, resCleaning, resWorkspace, resTickets, resNotices, resContacts, resNotes, resCalendar, resDocuments, resInbox] = await Promise.all([
+    const [resDash, resProp, resExp, resUsers, resRes, resEmp, resPay, resPromos, resCleaning, resWorkspace, resTickets, resNotices, resContacts, resNotes, resCalendar, resDocuments, resInbox, resPasswordResets] = await Promise.all([
       fetch(API + '/v1/dashboard', { headers: headers() }).then(r => r.json()).catch(() => null),
       fetch(API + '/v1/properties', { headers: headers() }).then(r => r.json()).catch(() => null),
       fetch(API + '/v1/expenses', { headers: headers() }).then(r => r.json()).catch(() => null),
@@ -83,7 +85,8 @@ async function load() {
       fetch(API + '/v1/workspace/notes', { headers: headers() }).then(r => r.json()).catch(() => null),
       fetch(API + '/v1/workspace/calendar', { headers: headers() }).then(r => r.json()).catch(() => null),
       fetch(API + '/v1/workspace/documents', { headers: headers() }).then(r => r.json()).catch(() => null),
-      currentEmployee?.role==='SUPER_ADMIN' ? fetch(API + '/v1/workspace/confidential', { headers: headers() }).then(r => r.json()).catch(() => null) : Promise.resolve(null)
+      currentEmployee?.role==='SUPER_ADMIN' ? fetch(API + '/v1/workspace/confidential', { headers: headers() }).then(r => r.json()).catch(() => null) : Promise.resolve(null),
+      currentEmployee?.role==='SUPER_ADMIN' ? fetch(API + '/v1/password-resets', { headers: headers() }).then(r => r.json()).catch(() => null) : Promise.resolve(null)
     ]);
 
     if (resDash && resDash.properties) dashboard = resDash;
@@ -103,6 +106,7 @@ async function load() {
     if (resCalendar?.items) calendarEvents = resCalendar.items;
     if (resDocuments?.items) businessDocuments = resDocuments.items;
     if (resInbox?.items) confidentialMessages = resInbox.items;
+    if (resPasswordResets?.items) passwordResetRequests = resPasswordResets.items;
   } catch (err) {
     console.error('Error loading data:', err);
   }
@@ -157,6 +161,7 @@ function renderEmployeeLogin(message = '') {
           <label>Correo electrónico<div class="login-input-wrap"><span>✉</span><input name="email" type="email" required autocomplete="username" placeholder="empleado@hotel.com"></div></label>
           <label>Contraseña<div class="login-input-wrap"><span>⌑</span><input name="password" type="password" minlength="8" required autocomplete="current-password" placeholder="Tu contraseña"></div></label>
           <button type="submit"><span>Entrar al portal</span><b>→</b></button>
+          <button type="button" class="forgot-password-button" id="forgotPasswordButton">Olvidé mi contraseña</button>
           <div class="login-security"><span>✓</span><small>Acceso cifrado y exclusivo para personal autorizado.</small></div>
         </form>
       </section>
@@ -173,12 +178,17 @@ function renderEmployeeLogin(message = '') {
       if (!response.ok) throw new Error(data.error || 'No fue posible iniciar sesión');
       localStorage.setItem('employeeToken', data.accessToken);
       currentEmployee = data.employee;
-      load();
+      if (data.employee.mustChangePassword) renderForcedPasswordChange(); else load();
     } catch (error) {
       renderEmployeeLogin(error.message);
     }
   };
+  document.querySelector('#forgotPasswordButton').onclick=()=>openForgotPasswordModal();
 }
+
+function openForgotPasswordModal(){modal('Recuperar acceso',`<form id="forgotPasswordForm" class="premium-form"><div class="form-intro"><span>⌑</span><div><b>Solicitud segura</b><p>Administración verificará tu identidad y generará una contraseña temporal.</p></div></div><label class="field-block">Correo institucional<input type="email" name="email" required autocomplete="email"></label><div id="forgotResult" class="form-success" hidden></div><button class="primary premium-submit">Enviar solicitud</button></form>`);document.querySelector('#forgotPasswordForm').onsubmit=async e=>{e.preventDefault();const form=e.currentTarget,button=form.querySelector('button'),result=form.querySelector('#forgotResult');button.disabled=true;try{const response=await fetch(API+'/v1/auth/forgot-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:new FormData(form).get('email')})});const data=await response.json();result.hidden=false;result.textContent=data.message||'Solicitud enviada.';button.textContent='Solicitud enviada'}catch{result.hidden=false;result.textContent='No fue posible enviar la solicitud.';button.disabled=false}}}
+
+function renderForcedPasswordChange(){document.querySelector('#app').innerHTML=`<main class="password-change-page"><form id="forcedPasswordForm" class="employee-login-card"><div class="employee-login-mark"><img src="/logo-htj.png" alt="HTJ"></div><span class="employee-login-kicker">PROTECCIÓN DE CUENTA</span><h2>Crea tu contraseña personal</h2><p>Ingresaste con una contraseña temporal. Debes reemplazarla antes de acceder al sistema.</p><label>Nueva contraseña<div class="login-input-wrap"><span>⌑</span><input name="password" type="password" minlength="12" maxlength="128" required autocomplete="new-password"></div></label><label>Confirmar contraseña<div class="login-input-wrap"><span>✓</span><input name="confirmation" type="password" minlength="12" maxlength="128" required autocomplete="new-password"></div></label><div id="passwordChangeError" class="form-error" hidden></div><button type="submit"><span>Guardar y entrar</span><b>→</b></button><small class="password-policy">Mínimo 12 caracteres. Usa letras, números y un símbolo.</small></form></main>`;document.querySelector('#forcedPasswordForm').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget),error=e.currentTarget.querySelector('#passwordChangeError'),button=e.currentTarget.querySelector('button');if(f.get('password')!==f.get('confirmation')){error.hidden=false;error.textContent='Las contraseñas no coinciden.';return}button.disabled=true;try{const response=await fetch(API+'/v1/auth/change-password',{method:'POST',headers:headers(),body:JSON.stringify({newPassword:f.get('password')})});const data=await response.json().catch(()=>({}));if(!response.ok)throw Error(data.error||'No fue posible cambiar la contraseña');currentEmployee.mustChangePassword=false;await load()}catch(x){error.hidden=false;error.textContent=x.message;button.disabled=false}}}
 
 function render() {
   const menuItems = [
@@ -195,7 +205,7 @@ function render() {
     { id: 'directorio', label: '☏ Directorio' },
     { id: 'agenda', label: '▦ Agenda / Calendario' },
     { id: 'finanzas', label: '$ Finanzas' },
-    { id: 'personal', label: '♙ Personal' },
+    { id: 'personal', label: '♙ Directorio Activo' },
     { id: 'nomina', label: '◫ Nómina' },
     { id: 'configuracion', label: '⚙ Usuarios / Config' }
   ];
@@ -628,11 +638,13 @@ function render() {
     mainContent = `
       <header class="head">
         <div>
-          <h1>Personal / Empleados</h1>
-          <p>Gestiona las cuentas del personal administrativo, limpieza y mantenimiento</p>
+          <span class="section-kicker">IDENTIDAD Y ACCESO</span><h1>Directorio Activo HTJ</h1>
+          <p>Administra cuentas, roles, estados y recuperación segura del personal.</p>
         </div>
-        <button class="add" id="addEmployeeBtn">+ Crear Empleado</button>
+        ${currentEmployee?.role==='SUPER_ADMIN'?'<button class="add add-with-label" id="addEmployeeBtn">+ Crear Empleado</button>':''}
       </header>
+      <section class="directory-admin-summary"><article><span>●</span><div><b>${employees.filter(e=>e.active).length}</b><small>Cuentas activas</small></div></article><article><span>◌</span><div><b>${employees.filter(e=>!e.active).length}</b><small>Suspendidas</small></div></article><article><span>⌑</span><div><b>${passwordResetRequests.filter(r=>r.status==='PENDING').length}</b><small>Recuperaciones pendientes</small></div></article></section>
+      ${currentEmployee?.role==='SUPER_ADMIN'&&passwordResetRequests.some(r=>r.status==='PENDING')?`<section class="box reset-requests"><div class="section-heading"><div><span class="section-kicker">RECUPERACIÓN DE ACCESO</span><h3>Solicitudes pendientes</h3><p>Verifica la identidad del colaborador antes de generar la contraseña temporal.</p></div></div>${passwordResetRequests.filter(r=>r.status==='PENDING').map(r=>`<article><div><b>${escapeHtml(r.name)}</b><small>${escapeHtml(r.email)} · #${r.clock_number||'—'}</small></div><time>${new Date(r.requested_at).toLocaleString('es-MX')}</time><button onclick="generateTemporaryPassword('${r.employee_id}')">Generar temporal</button></article>`).join('')}</section>`:''}
       <section class="users-list">
         <div class="box">
           <h3>Listado de Personal</h3>
@@ -659,11 +671,11 @@ function render() {
                       <span class="badge ${e.active ? 'badge-published' : 'badge-draft'}">
                         ${e.active ? 'Activo' : 'Inactivo'}
                       </span>
+                      ${e.force_password_change?'<small class="password-pending-badge">Cambio de clave pendiente</small>':''}
                     </td>
                     <td>
                       <div class="actions-group">
-                        <button class="btn-action btn-primary" onclick="openEditEmployeeModal('${e.id}', '${e.name}', '${e.email}', '${e.role}', ${e.active})">Editar</button>
-                        <button class="btn-action btn-danger" onclick="deleteEmployee('${e.id}')">Eliminar</button>
+                        ${currentEmployee?.role==='SUPER_ADMIN'?`<button class="btn-action btn-primary" onclick="openEditEmployeeModal('${e.id}', '${e.name}', '${e.email}', '${e.role}', ${e.active})">Editar</button><button class="btn-action btn-soft" onclick="generateTemporaryPassword('${e.id}')">Restablecer clave</button><button class="btn-action btn-danger" onclick="deleteEmployee('${e.id}')">Eliminar</button>`:'<span class="badge">Solo lectura</span>'}
                       </div>
                     </td>
                   </tr>
@@ -1600,8 +1612,8 @@ function openEmployeeModal() {
         </select>
       </div>
       <div style="margin-bottom:20px;">
-        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Contraseña (Min. 8 caracteres)</label>
-        <input name="password" type="password" required placeholder="••••••••" style="width:100%;">
+        <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Contraseña inicial (mínimo 12 caracteres)</label>
+        <input name="password" type="password" minlength="12" required placeholder="Temporal segura" style="width:100%;">
       </div>
       <button class="primary" style="width:100%;padding:14px;background:var(--gold);color:#171106;font-weight:bold;">Crear Empleado</button>
     </form>
@@ -1627,7 +1639,7 @@ function openEmployeeModal() {
         document.querySelector('.modal').remove();
         load();
       } else {
-        alert('Error al registrar el empleado.');
+        const data=await res.json().catch(()=>({}));alert(data.error||'Error al registrar el empleado.');
       }
     } catch (err) {
       alert('Error de conexión.');
@@ -1666,7 +1678,7 @@ window.openEditEmployeeModal = function(id, name, email, role, active) {
       </div>
       <div style="margin-bottom:20px;">
         <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--muted)">Nueva Contraseña (Dejar en blanco para no cambiar)</label>
-        <input name="password" type="password" placeholder="••••••••" style="width:100%;">
+        <input name="password" type="password" minlength="12" placeholder="Mínimo 12 caracteres" style="width:100%;">
       </div>
       <button class="primary" style="width:100%;padding:14px;background:var(--gold);color:#171106;font-weight:bold;">Guardar Cambios</button>
     </form>
@@ -1682,7 +1694,7 @@ window.openEditEmployeeModal = function(id, name, email, role, active) {
       active: fd.get('active') === 'true'
     };
     const password = fd.get('password');
-    if (password && password.trim().length >= 8) {
+    if (password && password.trim().length >= 12) {
       body.password = password;
     }
 
@@ -1703,6 +1715,8 @@ window.openEditEmployeeModal = function(id, name, email, role, active) {
     }
   };
 };
+
+window.generateTemporaryPassword=async function(id){if(!confirm('Verifica primero la identidad del empleado. ¿Generar una contraseña temporal nueva?'))return;try{const response=await fetch(API+'/v1/employees/'+id+'/temporary-password',{method:'POST',headers:headers()});const data=await response.json().catch(()=>({}));if(!response.ok)throw Error(data.error||'No fue posible restablecer la contraseña');modal('Contraseña temporal generada',`<div class="temporary-password-result"><img src="/logo-htj.png" alt="HTJ"><span>SE MUESTRA UNA SOLA VEZ</span><h3>${escapeHtml(data.employee.name)}</h3><code id="temporaryPasswordValue">${escapeHtml(data.temporaryPassword)}</code><button id="copyTemporaryPassword">Copiar contraseña</button><p>Entrégala directamente al empleado. Al iniciar sesión, el sistema le exigirá crear una contraseña personal.</p></div>`);document.querySelector('#copyTemporaryPassword').onclick=async()=>{await navigator.clipboard.writeText(data.temporaryPassword);document.querySelector('#copyTemporaryPassword').textContent='✓ Copiada'};await load()}catch(error){alert(error.message)}};
 
 function openExpenseModal() {
   const today = new Date().toISOString().slice(0, 10);
