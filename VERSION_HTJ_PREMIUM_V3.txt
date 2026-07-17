@@ -1,3 +1,3 @@
-HTJ HOTEL ULTRA PREMIUM V10.1 - MENU RESPONSIVE
-Centro de trabajo seguro y menú lateral adaptable con desplazamiento independiente para zoom, laptops y pantallas de poca altura.
+HTJ HOTEL ULTRA PREMIUM V10.2 - FINANZAS FUNCIONAL
+Centro de trabajo seguro, menú responsive y formulario financiero restaurado con validación, permisos administrativos y trazabilidad por usuario.
 Este archivo identifica la entrega correcta para el actualizador de GitHub y Railway.

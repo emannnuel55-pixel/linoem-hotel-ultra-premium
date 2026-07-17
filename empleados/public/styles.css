@@ -670,6 +670,8 @@ button {
 .form-grid-premium label,.field-block { display:flex; flex-direction:column; gap:5px; color:var(--muted); font-size:.78rem; font-weight:800; }
 .form-grid-premium .full { grid-column:1/-1; }
 .premium-submit { width:100%; margin-top:18px; padding:14px; border:0; border-radius:11px; background:var(--gold); color:#171106; font-weight:900; cursor:pointer; }
+.premium-submit:disabled { opacity:.62; cursor:wait; }
+.form-error { margin-top:13px; padding:11px 13px; border:1px solid rgba(255,101,119,.25); border-radius:10px; background:rgba(255,101,119,.1); color:var(--red); font-size:.78rem; font-weight:700; }
 .checklist-premium { display:grid; gap:8px; margin:12px 0 18px; }
 .checklist-premium label { display:flex; align-items:center; gap:10px; padding:11px 13px; border:1px solid var(--border); border-radius:11px; background:var(--panel2); color:var(--ink); cursor:pointer; }
 .checklist-premium input { position:absolute; opacity:0; pointer-events:none; }

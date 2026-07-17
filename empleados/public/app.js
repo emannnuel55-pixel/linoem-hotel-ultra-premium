@@ -1704,6 +1704,40 @@ window.openEditEmployeeModal = function(id, name, email, role, active) {
   };
 };
 
+function openExpenseModal() {
+  const today = new Date().toISOString().slice(0, 10);
+  modal('Registrar gasto operativo', `
+    <form id="expenseForm" class="premium-form">
+      <div class="form-intro"><span>$</span><div><b>Nuevo movimiento financiero</b><p>El gasto quedará registrado con tu usuario, fecha y hora.</p></div></div>
+      <div class="form-grid-premium">
+        <label class="full">Descripción del gasto<input name="description" required minlength="3" maxlength="500" placeholder="Ej. Compra de productos de limpieza"></label>
+        <label>Categoría<select name="category" required><option value="Limpieza">Limpieza</option><option value="Mantenimiento">Mantenimiento</option><option value="Servicios">Servicios</option><option value="Insumos">Insumos</option><option value="Transporte">Transporte</option><option value="Nómina">Nómina</option><option value="Marketing">Marketing</option><option value="Impuestos">Impuestos</option><option value="Otro">Otro</option></select></label>
+        <label>Tipo<select name="kind" required><option value="VARIABLE">Gasto variable</option><option value="FIXED">Gasto fijo</option><option value="ASSET">Activo / inversión</option></select></label>
+        <label>Monto (MXN)<input name="amount" type="number" min="0.01" max="100000000" step="0.01" required placeholder="0.00"></label>
+        <label>Fecha del gasto<input name="occurredOn" type="date" value="${today}" required></label>
+      </div>
+      <div id="expenseFormError" class="form-error" hidden></div>
+      <button class="primary premium-submit" type="submit">Guardar gasto</button>
+    </form>`);
+  document.querySelector('#expenseForm').onsubmit = async event => {
+    event.preventDefault();
+    const form = event.currentTarget, fd = new FormData(form), button = form.querySelector('button[type="submit"]'), errorBox = form.querySelector('#expenseFormError');
+    const amount = Number(fd.get('amount'));
+    if (!Number.isFinite(amount) || amount <= 0) { errorBox.hidden=false; errorBox.textContent='Escribe un monto mayor a cero.'; return; }
+    button.disabled = true; button.textContent = 'Guardando…'; errorBox.hidden = true;
+    try {
+      const response = await fetch(API + '/v1/expenses', {method:'POST',headers:headers(),body:JSON.stringify({description:String(fd.get('description')).trim(),category:fd.get('category'),kind:fd.get('kind'),amount,occurredOn:fd.get('occurredOn')})});
+      const data = await response.json().catch(()=>({}));
+      if (!response.ok) throw Error(data.error || `No fue posible registrar el gasto (HTTP ${response.status})`);
+      document.querySelector('.modal')?.remove();
+      await load();
+    } catch (error) {
+      errorBox.hidden=false; errorBox.textContent=error.message; button.disabled=false; button.textContent='Guardar gasto';
+    }
+  };
+}
+window.openExpenseModal = openExpenseModal;
+
 window.deleteEmployee = async function(id) {
   if (!confirm('¿Estás seguro de que deseas eliminar este empleado?')) return;
   try {
