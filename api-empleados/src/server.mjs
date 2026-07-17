@@ -26,27 +26,6 @@ const clientDatabaseUrl=process.env.CLIENT_DATABASE_URL||(process.env.DATABASE_U
 const clientPool=clientDatabaseUrl?new pg.Pool({connectionString:clientDatabaseUrl,ssl:process.env.NODE_ENV==='production'?{rejectUnauthorized:false}:false}):null;
 const qc=async(t,v=[])=>{if(!clientPool)throw Error('Client DB pool no disponible');return clientPool.query(t,v)};
 
-// Propietario maestro: promoción segura e idempotente desde Variables de Railway.
-// Si la cuenta ya existe conserva su contraseña; si no existe puede crearse una
-// sola vez proporcionando OWNER_INITIAL_PASSWORD.
-async function ensureOwnerAccount(){
-  const email=String(process.env.OWNER_EMAIL||'').trim().toLowerCase();
-  if(!email)return;
-  const existing=await q("UPDATE employees SET role='SUPER_ADMIN',active=true WHERE lower(email)=lower($1) RETURNING id,email,name,role,active",[email]);
-  if(existing.rows[0]){
-    console.log(`Cuenta propietaria verificada: ${existing.rows[0].email}`);
-    return;
-  }
-  const initialPassword=String(process.env.OWNER_INITIAL_PASSWORD||'');
-  if(initialPassword.length<8){
-    console.error('OWNER_EMAIL no existe y OWNER_INITIAL_PASSWORD debe tener al menos 8 caracteres');
-    return;
-  }
-  const passwordHash=await hash(initialPassword);
-  await q("INSERT INTO employees(email,name,password_hash,role,active,clock_number) VALUES($1,$2,$3,'SUPER_ADMIN',true,COALESCE((SELECT max(clock_number)+1 FROM employees),1000))",[email,process.env.OWNER_NAME||'Propietario General HTJ',passwordHash]);
-  console.log(`Cuenta propietaria creada: ${email}`);
-}
-
 // ── AUTENTICACIÓN DE EMPLEADOS ──────────────────────────────────────────────
 app.post('/v1/auth/login',safe(async(req,res)=>{
   const data=z.object({email:z.string().email(),password:z.string().min(8).max(128)}).parse(req.body);
@@ -155,7 +134,62 @@ app.delete('/v1/users/:id',role('SUPER_ADMIN'),safe(async(req,res)=>{await qc('D
 app.get('/health',safe(async(_,r)=>{if(process.env.DATABASE_URL)await q('SELECT 1');r.json({status:'ok',service:'api-empleados'})}));
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
-app.get('/v1/dashboard',role('SUPER_ADMIN','MANAGER','FINANCE'),safe(async(_,res)=>{const [p,e]=await Promise.all([q("SELECT count(*)::int total,count(*) FILTER(WHERE status='AVAILABLE')::int available FROM properties"),q("SELECT COALESCE(sum(amount),0)::float expenses FROM expenses WHERE occurred_on>=date_trunc('month',now())")]);res.json({...p.rows[0],...e.rows[0]})}));
+app.get('/v1/dashboard',role('SUPER_ADMIN','MANAGER','FINANCE'),safe(async(_,res)=>{
+  const employeeQueries=await Promise.all([
+    q(`SELECT count(*)::int total,
+      count(*) FILTER(WHERE status='AVAILABLE')::int available,
+      count(*) FILTER(WHERE status='CLEANING')::int cleaning,
+      count(*) FILTER(WHERE status='MAINTENANCE')::int maintenance,
+      count(*) FILTER(WHERE status='OCCUPIED')::int occupied,
+      count(*) FILTER(WHERE published=true)::int published,
+      count(*) FILTER(WHERE sync_status='PENDING')::int pending_sync FROM properties`),
+    q(`SELECT COALESCE(sum(amount) FILTER(WHERE occurred_on>=date_trunc('month',current_date)),0)::float current_month,
+      COALESCE(sum(amount) FILTER(WHERE occurred_on>=date_trunc('month',current_date)-interval '1 month' AND occurred_on<date_trunc('month',current_date)),0)::float previous_month,
+      count(*) FILTER(WHERE occurred_on>=date_trunc('month',current_date))::int transactions FROM expenses`),
+    q(`SELECT count(*) FILTER(WHERE status IN('REQUESTED','IN_PROGRESS'))::int pending,
+      count(*) FILTER(WHERE status='COMPLETED' AND completed_at::date=current_date)::int completed_today FROM cleaning_tasks`),
+    q(`SELECT count(*)::int total,count(*) FILTER(WHERE active=true)::int active,
+      count(*) FILTER(WHERE sync_status='PENDING')::int pending_sync FROM promotions`),
+    q(`SELECT count(*) FILTER(WHERE active=true)::int active FROM employees`),
+    q(`SELECT description,category,amount::float,occurred_on AS date FROM expenses ORDER BY occurred_on DESC,created_at DESC LIMIT 5`)
+  ]);
+  let reservationStats={active:0,arrivalsToday:0,departuresToday:0,occupiedToday:0,guestsToday:0,estimatedRevenue:0};
+  let bookingTrend=[];
+  let recentReservations=[];
+  let clientAvailable=true;
+  try{
+    const [stats,trend,recent]=await Promise.all([
+      qc(`SELECT
+        count(*) FILTER(WHERE status IN('HOLD','PAID') AND (status='PAID' OR hold_until>now()))::int active,
+        count(*) FILTER(WHERE starts_on=current_date AND status IN('HOLD','PAID') AND (status='PAID' OR hold_until>now()))::int arrivals,
+        count(*) FILTER(WHERE ends_on=current_date AND status='PAID')::int departures,
+        count(DISTINCT property_id) FILTER(WHERE starts_on<=current_date AND ends_on>current_date AND status IN('HOLD','PAID') AND (status='PAID' OR hold_until>now()))::int occupied,
+        COALESCE(sum(guests) FILTER(WHERE starts_on<=current_date AND ends_on>current_date AND status IN('HOLD','PAID') AND (status='PAID' OR hold_until>now())),0)::int guests,
+        COALESCE(sum((ends_on-starts_on)*p.base_price) FILTER(WHERE r.status='PAID' AND r.created_at>=date_trunc('month',now())),0)::float revenue
+        FROM reservations r JOIN properties p ON p.id=r.property_id`),
+      qc(`WITH days AS (SELECT generate_series(current_date-interval '13 days',current_date,interval '1 day')::date day)
+        SELECT to_char(days.day,'YYYY-MM-DD') day,count(r.id)::int reservations
+        FROM days LEFT JOIN reservations r ON r.created_at::date=days.day GROUP BY days.day ORDER BY days.day`),
+      qc(`SELECT r.id,r.starts_on AS "startsOn",r.ends_on AS "endsOn",r.guests,r.status,r.created_at AS "createdAt",
+        p.name AS "propertyName",u.name AS "guestName" FROM reservations r
+        JOIN properties p ON p.id=r.property_id JOIN users u ON u.id=r.user_id ORDER BY r.created_at DESC LIMIT 6`)
+    ]);
+    const row=stats.rows[0]||{};
+    reservationStats={active:row.active||0,arrivalsToday:row.arrivals||0,departuresToday:row.departures||0,occupiedToday:row.occupied||0,guestsToday:row.guests||0,estimatedRevenue:row.revenue||0};
+    bookingTrend=trend.rows;
+    recentReservations=recent.rows;
+  }catch(error){clientAvailable=false;console.error('Dashboard: métricas de clientes no disponibles:',error.message)}
+  const properties=employeeQueries[0].rows[0];
+  const expenses=employeeQueries[1].rows[0];
+  const previous=Number(expenses.previous_month||0),current=Number(expenses.current_month||0);
+  res.json({
+    generatedAt:new Date().toISOString(),sources:{operations:true,clients:clientAvailable},
+    properties,reservations:reservationStats,
+    expenses:{currentMonth:current,previousMonth:previous,transactions:expenses.transactions||0,variation:previous?((current-previous)/previous)*100:null},
+    cleaning:employeeQueries[2].rows[0],promotions:employeeQueries[3].rows[0],employees:employeeQueries[4].rows[0],
+    bookingTrend,recentReservations,recentExpenses:employeeQueries[5].rows
+  });
+}));
 
 // ── PROPIEDADES ───────────────────────────────────────────────────────────────
 app.get('/v1/properties',role('SUPER_ADMIN','MANAGER','RECEPTION','HOUSEKEEPING','MAINTENANCE'),safe(async(_,res)=>res.json({items:(await q('SELECT * FROM properties ORDER BY updated_at DESC')).rows})));
@@ -386,7 +420,6 @@ await q(`CREATE TABLE IF NOT EXISTS cleaning_tasks(
   created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS cleaning_tasks_status_idx ON cleaning_tasks(status,requested_for);`);
-await ensureOwnerAccount();
 
 app.listen(process.env.PORT||4001,()=>{
   console.log('API empleados lista v3 — sincronización automática activa');

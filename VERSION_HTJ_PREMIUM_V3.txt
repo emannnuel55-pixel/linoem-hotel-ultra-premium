@@ -1,3 +1,3 @@
-HTJ HOTEL ULTRA PREMIUM V6
-Cuenta administrativa configurable, propietario maestro, login inspiracional, formularios operativos y sincronizacion.
+HTJ HOTEL ULTRA PREMIUM V7 - DASHBOARD REAL
+Dashboard ejecutivo formal con indicadores reales de propiedades, reservaciones, gastos, limpieza, mantenimiento, promociones y actividad reciente.
 Este archivo identifica la entrega correcta para el actualizador de GitHub y Railway.

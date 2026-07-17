@@ -12,7 +12,14 @@ let payrolls = [];
 let promotions = [];
 let cleaningTasks = [];
 let currentEmployee = null;
-let dashboard = { total: 0, available: 0, expenses: 0 };
+let dashboard = {
+  generatedAt: null, sources: { operations: true, clients: true },
+  properties: { total: 0, available: 0, cleaning: 0, maintenance: 0, occupied: 0, published: 0, pending_sync: 0 },
+  reservations: { active: 0, arrivalsToday: 0, departuresToday: 0, occupiedToday: 0, guestsToday: 0, estimatedRevenue: 0 },
+  expenses: { currentMonth: 0, previousMonth: 0, transactions: 0, variation: null },
+  cleaning: { pending: 0, completed_today: 0 }, promotions: { total: 0, active: 0, pending_sync: 0 },
+  employees: { active: 0 }, bookingTrend: [], recentReservations: [], recentExpenses: []
+};
 
 const headers = () => ({
   'Content-Type': 'application/json',
@@ -69,13 +76,7 @@ async function load() {
       fetch(API + '/v1/cleaning-tasks', { headers: headers() }).then(r => r.json()).catch(() => null)
     ]);
 
-    if (resDash) {
-      dashboard = {
-        total: resDash.total || 0,
-        available: resDash.available || 0,
-        expenses: resDash.expenses || 0
-      };
-    }
+    if (resDash && resDash.properties) dashboard = resDash;
     if (resProp && resProp.items) properties = resProp.items;
     if (resExp && resExp.items) expenses = resExp.items;
     if (resUsers && resUsers.items) users = resUsers.items;
@@ -178,52 +179,64 @@ function render() {
   let mainContent = '';
 
   if (currentTab === 'resumen') {
-    const occupancy = dashboard.total > 0 ? Math.round(((dashboard.total - dashboard.available) / dashboard.total) * 100) : 0;
+    const pStats = dashboard.properties || {};
+    const rStats = dashboard.reservations || {};
+    const eStats = dashboard.expenses || {};
+    const totalUnits = Number(pStats.total || 0);
+    const occupiedUnits = Number(rStats.occupiedToday || pStats.occupied || 0);
+    const occupancy = totalUnits > 0 ? Math.round((occupiedUnits / totalUnits) * 100) : 0;
+    const expenseVariation = eStats.variation;
+    const trend = dashboard.bookingTrend || [];
+    const maxTrend = Math.max(1, ...trend.map(item => Number(item.reservations || 0)));
+    const nowHour = new Date().getHours();
+    const greeting = nowHour < 12 ? 'Buenos días' : nowHour < 19 ? 'Buenas tardes' : 'Buenas noches';
+    const generatedLabel = dashboard.generatedAt ? new Date(dashboard.generatedAt).toLocaleString('es-MX',{dateStyle:'medium',timeStyle:'short'}) : 'actualizando';
     mainContent = `
-      <header class="head">
-        <div>
-          <h1>Buenos días, ${escapeHtml(currentEmployee?.name?.split(' ')[0] || 'equipo HTJ')}</h1>
-          <p>Vista general de tus propiedades</p>
+      <header class="head dashboard-head">
+        <div class="dashboard-title">
+          <span class="section-kicker">CENTRO DE OPERACIONES HTJ</span>
+          <h1>${greeting}, ${escapeHtml(currentEmployee?.name?.split(' ')[0] || 'equipo')}</h1>
+          <p>Información operativa consolidada en tiempo real · Actualizado ${generatedLabel}</p>
         </div>
-        <button class="add" id="addBtn">+ Nueva propiedad</button>
+        <div class="dashboard-head-actions"><button class="dashboard-refresh" onclick="load()">↻ Actualizar</button><button class="add add-with-label" id="addBtn">+ Nueva propiedad</button></div>
       </header>
-      <section class="kpis">
-        <div class="kpi">
-          <span>OCUPACIÓN</span>
-          <strong>${occupancy}%</strong>
-          <small class="up">↑ 6.2%</small>
-        </div>
-        <div class="kpi">
-          <span>PROPIEDADES</span>
-          <strong>${dashboard.total}</strong>
-          <small>en catálogo</small>
-        </div>
-        <div class="kpi">
-          <span>DISPONIBLES</span>
-          <strong>${dashboard.available}</strong>
-          <small>unidades libres</small>
-        </div>
-        <div class="kpi">
-          <span>GASTOS MENSUALES</span>
-          <strong>${money(dashboard.expenses)}</strong>
-          <small class="down">↓ 4.8%</small>
-        </div>
+      ${dashboard.sources?.clients === false ? '<div class="dashboard-source-warning">⚠ No fue posible consultar temporalmente las reservaciones de clientes. Las métricas operativas sí están actualizadas.</div>' : ''}
+      <section class="executive-kpis">
+        <article class="executive-kpi accent-blue"><div class="kpi-top"><span>OCUPACIÓN ACTUAL</span><i>▣</i></div><strong>${occupancy}%</strong><div class="kpi-progress"><span style="width:${Math.min(100,occupancy)}%"></span></div><small>${occupiedUnits} de ${totalUnits} unidades con estancia activa</small></article>
+        <article class="executive-kpi accent-green"><div class="kpi-top"><span>DISPONIBILIDAD</span><i>⌂</i></div><strong>${Number(pStats.available||0)}</strong><small>de ${totalUnits} propiedades registradas</small><em>${Number(pStats.published||0)} publicadas en clientes</em></article>
+        <article class="executive-kpi accent-gold"><div class="kpi-top"><span>RESERVAS ACTIVAS</span><i>◫</i></div><strong>${Number(rStats.active||0)}</strong><small>${Number(rStats.arrivalsToday||0)} llegadas · ${Number(rStats.departuresToday||0)} salidas hoy</small><em>${Number(rStats.guestsToday||0)} huéspedes alojados hoy</em></article>
+        <article class="executive-kpi accent-red"><div class="kpi-top"><span>GASTOS DEL MES</span><i>$</i></div><strong>${money(eStats.currentMonth||0)}</strong><small>${Number(eStats.transactions||0)} movimientos registrados</small><em class="${expenseVariation == null ? '' : expenseVariation <= 0 ? 'positive' : 'negative'}">${expenseVariation == null ? 'Sin comparación del mes anterior' : `${expenseVariation > 0 ? '↑' : '↓'} ${Math.abs(expenseVariation).toFixed(1)}% contra el mes anterior`}</em></article>
       </section>
-      <section class="layout">
-        <article class="box">
-          <h3>Rendimiento semanal</h3>
-          <div class="bars">
-            ${[45, 63, 52, 80, 68, 92, 74].map((x, i) => `<div class="bar" style="height:${x}%" title="${['L', 'M', 'M', 'J', 'V', 'S', 'D'][i]} ${x}%"></div>`).join('')}
+      <section class="dashboard-grid">
+        <article class="box dashboard-chart-card">
+          <div class="card-heading"><div><span class="section-kicker">DEMANDA</span><h3>Reservaciones creadas</h3><p>Comportamiento real de los últimos 14 días.</p></div><span class="metric-pill">${trend.reduce((sum,item)=>sum+Number(item.reservations||0),0)} nuevas</span></div>
+          <div class="real-chart">
+            ${trend.length ? trend.map((item,index)=>{const value=Number(item.reservations||0);const date=new Date(item.day+'T12:00:00');return `<div class="real-bar-column" title="${date.toLocaleDateString('es-MX')} · ${value} reservaciones"><b>${value||''}</b><div class="real-bar-track"><span style="height:${value ? Math.max(8,(value/maxTrend)*100) : 3}%"></span></div><small>${index%2===0?date.toLocaleDateString('es-MX',{day:'2-digit',month:'short'}):''}</small></div>`}).join('') : '<div class="chart-empty">No hay información de reservaciones disponible.</div>'}
           </div>
         </article>
-        <article class="box">
-          <h3>Estado operativo</h3>
-          <div class="status"><span><i class="dot"></i>Disponibles</span><b>${dashboard.available}</b></div>
-          <div class="status"><span><i class="dot warn"></i>Limpieza</span><b>${properties.filter(p => p.status === 'CLEANING').length}</b></div>
-          <div class="status"><span><i class="dot red"></i>Mantenimiento</span><b>${properties.filter(p => p.status === 'MAINTENANCE').length}</b></div>
-          <div class="status"><span><i class="dot" style="background:#5271ff"></i>Ocupadas</span><b>${properties.filter(p => p.status === 'OCCUPIED').length}</b></div>
+        <article class="box operations-card">
+          <div class="card-heading"><div><span class="section-kicker">ESTADO ACTUAL</span><h3>Operación del hotel</h3><p>Distribución real de unidades y trabajos.</p></div></div>
+          <div class="operation-ring" style="--occupancy:${occupancy * 3.6}deg"><div><strong>${occupancy}%</strong><span>ocupación</span></div></div>
+          <div class="operation-list">
+            <button onclick="switchTab('propiedades')"><span><i class="dot"></i>Disponibles</span><b>${Number(pStats.available||0)}</b></button>
+            <button onclick="switchTab('limpieza')"><span><i class="dot warn"></i>En limpieza</span><b>${Number(pStats.cleaning||0)}</b></button>
+            <button onclick="switchTab('mantenimiento')"><span><i class="dot red"></i>Mantenimiento</span><b>${Number(pStats.maintenance||0)}</b></button>
+            <button onclick="switchTab('reservaciones')"><span><i class="dot blue"></i>Estancia activa</span><b>${occupiedUnits}</b></button>
+          </div>
         </article>
       </section>
+      <section class="dashboard-lower-grid">
+        <article class="box today-card"><div class="card-heading"><div><span class="section-kicker">HOY</span><h3>Agenda operativa</h3></div></div><div class="today-grid">
+          <button onclick="switchTab('reservaciones')"><span>→</span><strong>${Number(rStats.arrivalsToday||0)}</strong><small>Llegadas programadas</small></button>
+          <button onclick="switchTab('reservaciones')"><span>←</span><strong>${Number(rStats.departuresToday||0)}</strong><small>Salidas programadas</small></button>
+          <button onclick="switchTab('limpieza')"><span>✓</span><strong>${Number(dashboard.cleaning?.pending||0)}</strong><small>Limpiezas pendientes</small></button>
+          <button onclick="switchTab('mantenimiento')"><span>⚒</span><strong>${Number(pStats.maintenance||0)}</strong><small>Unidades reportadas</small></button>
+        </div></article>
+        <article class="box activity-card"><div class="card-heading"><div><span class="section-kicker">ACTIVIDAD</span><h3>Reservaciones recientes</h3></div><button onclick="switchTab('reservaciones')">Ver todas →</button></div><div class="activity-list">
+          ${(dashboard.recentReservations||[]).length ? dashboard.recentReservations.map(item=>`<div><span class="activity-avatar">${escapeHtml(item.guestName?.charAt(0)||'H')}</span><div><b>${escapeHtml(item.guestName||'Huésped')}</b><small>${escapeHtml(item.propertyName||'Alojamiento')} · ${new Date(item.startsOn).toLocaleDateString('es-MX')}–${new Date(item.endsOn).toLocaleDateString('es-MX')}</small></div><em class="reservation-${String(item.status).toLowerCase()}">${escapeHtml(item.status)}</em></div>`).join('') : '<div class="activity-empty">Aún no hay reservaciones registradas.</div>'}
+        </div></article>
+      </section>
+      <section class="quick-actions"><button onclick="openPropertyModal()"><i>⌂</i><span><b>Nueva propiedad</b><small>Agregar alojamiento</small></span></button><button onclick="openCleaningRequestModal()"><i>✓</i><span><b>Solicitar limpieza</b><small>Crear orden de trabajo</small></span></button><button onclick="openMaintenanceSelector()"><i>⚒</i><span><b>Reportar mantenimiento</b><small>Registrar desperfecto</small></span></button><button onclick="openExpenseModal()"><i>$</i><span><b>Registrar gasto</b><small>Movimiento financiero</small></span></button></section>
     `;
   } else if (currentTab === 'propiedades') {
     mainContent = `
