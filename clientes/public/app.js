@@ -20,6 +20,7 @@ const state = {
   search: { city: '', from: '', to: '', guests: 2, type: 'ALL' },
   user: null,
   trips: [],
+  serviceRequests: [],
   loading: true,
   error: ''
 };
@@ -231,7 +232,7 @@ function tripsContent() {
     <main class="account-page container">
       <div class="section-heading"><div><span class="section-kicker">TU CUENTA</span><h2>Mis viajes</h2><p>Consulta tus reservaciones y próximas estancias.</p></div></div>
       ${!state.user ? `<div class="empty-state"><span>▣</span><h3>Inicia sesión para ver tus viajes</h3><p>Tus reservas aparecerán aquí después de iniciar sesión.</p><button data-login>Abrir mi cuenta</button></div>` : state.trips.length ? `<div class="trip-grid">${state.trips.map(trip => `
-        <article class="trip-card"><div class="trip-image">${mediaMarkup({ name: trip.propertyName, media: trip.media }, 'stay-cover')}</div><div><span class="badge">${escapeHtml(trip.status)}</span><h3>${escapeHtml(trip.propertyName)}</h3><p>${escapeHtml(trip.city)}</p><strong>${new Date(trip.startsOn).toLocaleDateString('es-MX',{day:'numeric',month:'short'})} — ${new Date(trip.endsOn).toLocaleDateString('es-MX',{day:'numeric',month:'short',year:'numeric'})}</strong><small>${trip.guests} huéspedes</small></div></article>`).join('')}</div>` : `<div class="empty-state"><span>▣</span><h3>Aún no tienes viajes</h3><p>Cuando reserves una estancia podrás consultar aquí todos sus detalles.</p><button data-tab="explore">Encontrar alojamiento</button></div>`}
+        <article class="trip-card"><div class="trip-image">${mediaMarkup({ name: trip.propertyName, media: trip.media }, 'stay-cover')}</div><div><span class="badge">${escapeHtml(trip.status)}</span><h3>${escapeHtml(trip.propertyName)}</h3><p>${escapeHtml(trip.city)}</p><strong>${new Date(trip.startsOn).toLocaleDateString('es-MX',{day:'numeric',month:'short'})} — ${new Date(trip.endsOn).toLocaleDateString('es-MX',{day:'numeric',month:'short',year:'numeric'})}</strong><small>${trip.guests} huéspedes</small><button class="trip-service-button" data-service-trip="${trip.id}">Solicitar servicio</button></div></article>`).join('')}</div>${serviceRequestMarkup()}` : `<div class="empty-state"><span>▣</span><h3>Aún no tienes viajes</h3><p>Cuando reserves una estancia podrás consultar aquí todos sus detalles.</p><button data-tab="explore">Encontrar alojamiento</button></div>`}
     </main>`;
 }
 
@@ -239,9 +240,11 @@ function profileContent() {
   return `
     <main class="account-page container">
       <div class="section-heading"><div><span class="section-kicker">TU ESPACIO</span><h2>Perfil</h2><p>Gestiona tu acceso al portal HTJ.</p></div></div>
-      ${state.user ? `<section class="profile-card"><div class="profile-avatar">${escapeHtml(state.user.name?.charAt(0).toUpperCase() || 'H')}</div><div><span>Huésped HTJ</span><h3>${escapeHtml(state.user.name)}</h3><p>${escapeHtml(state.user.email)}</p></div><button id="logout">Cerrar sesión</button></section>` : `<div class="empty-state"><span>◎</span><h3>Bienvenido a HTJ</h3><p>Inicia sesión para reservar, consultar viajes y administrar tu perfil.</p><button data-login>Iniciar sesión</button></div>`}
+      ${state.user ? `<section class="profile-card"><div class="profile-avatar">${escapeHtml(state.user.name?.charAt(0).toUpperCase() || 'H')}</div><div><span>Huésped HTJ</span><h3>${escapeHtml(state.user.name)}</h3><p>${escapeHtml(state.user.email)}</p></div><button id="logout">Cerrar sesión</button></section><section class="guest-help-card"><div><span class="section-kicker">ATENCIÓN PRIVADA</span><h3>Estamos para escucharte</h3><p>Comparte una duda, queja, sugerencia o mejora directamente con administración.</p></div><button id="guestFeedbackButton">Abrir buzón</button></section>` : `<div class="empty-state"><span>◎</span><h3>Bienvenido a HTJ</h3><p>Inicia sesión para reservar, consultar viajes y administrar tu perfil.</p><button data-login>Iniciar sesión</button></div>`}
     </main>`;
 }
+
+function serviceRequestMarkup(){return `<section class="guest-requests"><div class="section-heading"><div><span class="section-kicker">SEGUIMIENTO</span><h2>Mis solicitudes</h2><p>Consulta el estado informado por el departamento responsable.</p></div></div><div class="guest-request-grid">${state.serviceRequests.length?state.serviceRequests.map(r=>`<article><div><span>#${r.folio} · ${escapeHtml(r.department)}</span><em>${escapeHtml(r.status)}</em></div><h3>${escapeHtml(r.subject)}</h3><p>${escapeHtml(r.description)}</p>${r.resolution?`<blockquote><b>Respuesta HTJ:</b> ${escapeHtml(r.resolution)}</blockquote>`:''}<small>${new Date(r.createdAt).toLocaleString('es-MX')}</small></article>`).join(''):'<p class="request-empty">Todavía no has enviado solicitudes.</p>'}</div></section>`}
 
 function header() {
   const tabs = [{id:'explore',label:'Explorar'},{id:'favorites',label:'Favoritos'},{id:'trips',label:'Mis viajes'}];
@@ -286,6 +289,8 @@ function bindEvents() {
   document.querySelectorAll('[data-login]').forEach(button => button.addEventListener('click', loginModal));
   document.querySelector('#themeToggle')?.addEventListener('click', () => { applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'); render(); });
   document.querySelector('#logout')?.addEventListener('click', () => { localStorage.removeItem('token'); state.user = null; state.trips = []; state.activeTab = 'explore'; render(); });
+  document.querySelectorAll('[data-service-trip]').forEach(button=>button.addEventListener('click',()=>openGuestService(button.dataset.serviceTrip)));
+  document.querySelector('#guestFeedbackButton')?.addEventListener('click',openGuestFeedback);
   document.querySelector('#retryLoad')?.addEventListener('click', load);
 
   document.querySelector('#bookingSearch')?.addEventListener('submit', event => {
@@ -489,9 +494,12 @@ async function authenticate(path, body, onSuccess, button) {
 
 async function loadTrips() {
   if (!state.user) return;
-  try { state.trips = (await fetchJson('/v1/me/reservations', { headers: { Authorization: 'Bearer ' + localStorage.getItem('token') } })).items || []; }
+  try { const auth={Authorization:'Bearer '+localStorage.getItem('token')};const [trips,requests]=await Promise.all([fetchJson('/v1/me/reservations',{headers:auth}),fetchJson('/v1/me/service-requests',{headers:auth})]);state.trips=trips.items||[];state.serviceRequests=requests.items||[]; }
   catch (error) { if (/autorizado/i.test(error.message)) { localStorage.removeItem('token'); state.user = null; } }
 }
+
+function openGuestService(tripId){const trip=state.trips.find(x=>x.id===tripId);modal('Solicitar atención HTJ',`<form class="auth-form" id="guestServiceForm"><p>Tu solicitud se enviará directamente al departamento responsable.</p><label>Servicio<select name="department"><option value="HOUSEKEEPING">Limpieza de habitación</option><option value="MAINTENANCE">Mantenimiento / desperfecto</option><option value="RECEPTION">Recepción / amenidad</option><option value="FINANCE">Pago, recibo o aclaración</option></select></label><label>Prioridad<select name="priority"><option value="NORMAL">Normal</option><option value="HIGH">Alta</option><option value="URGENT">Urgente</option><option value="LOW">Baja</option></select></label><label>Asunto<input name="subject" required></label><label>Detalles<textarea name="description" rows="5" required></textarea></label><button>Enviar solicitud</button></form>`);document.querySelector('#guestServiceForm').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target),button=e.target.querySelector('button');button.disabled=true;try{await fetchJson('/v1/me/service-requests',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+localStorage.getItem('token')},body:JSON.stringify({reservationId:trip.id,propertyId:trip.propertyId,department:f.get('department'),category:f.get('department')==='HOUSEKEEPING'?'CLEANING_REQUEST':'SERVICE_REQUEST',subject:f.get('subject'),description:f.get('description'),priority:f.get('priority')})});document.querySelector('.modal')?.remove();await loadTrips();render();toast('Solicitud enviada al departamento correspondiente.','success')}catch(x){toast(x.message,'warning');button.disabled=false}}}
+function openGuestFeedback(){modal('Buzón privado HTJ',`<form class="auth-form" id="guestFeedbackForm"><p>Este mensaje solamente será visible para la administración autorizada.</p><label>Tipo<select name="kind"><option value="QUESTION">Duda</option><option value="SUGGESTION">Sugerencia</option><option value="IMPROVEMENT">Mejora</option><option value="COMPLAINT">Queja</option></select></label><label>Asunto<input name="subject" required></label><label>Mensaje<textarea name="message" rows="6" required></textarea></label><button>Enviar de forma privada</button></form>`);document.querySelector('#guestFeedbackForm').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target);try{await fetchJson('/v1/me/feedback',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+localStorage.getItem('token')},body:JSON.stringify(Object.fromEntries(f))});document.querySelector('.modal')?.remove();toast('Tu mensaje fue entregado directamente a administración.','success')}catch(x){toast(x.message,'warning')}}}
 
 function modal(title, body, wide = false) {
   document.querySelectorAll('.modal').forEach(item => item.remove());

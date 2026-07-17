@@ -40,6 +40,19 @@ CREATE TABLE IF NOT EXISTS cleaning_tasks(id uuid PRIMARY KEY DEFAULT gen_random
 CREATE TABLE IF NOT EXISTS payroll(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),employee_id uuid REFERENCES employees(id),period_start date NOT NULL,period_end date NOT NULL,gross numeric(12,2) NOT NULL,deductions jsonb DEFAULT '{}',net numeric(12,2) NOT NULL,status text DEFAULT 'DRAFT',created_at timestamptz DEFAULT now());
 CREATE TABLE IF NOT EXISTS audit_log(id bigserial PRIMARY KEY,actor_id uuid,action text NOT NULL,resource text NOT NULL,resource_id text,metadata jsonb DEFAULT '{}',created_at timestamptz DEFAULT now());`);
 
+await q(`
+CREATE TABLE IF NOT EXISTS work_tickets(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),folio bigserial UNIQUE,source text NOT NULL DEFAULT 'EMPLOYEE',requester_id uuid,requester_name text NOT NULL,requester_email text,department text NOT NULL,category text NOT NULL,subject text NOT NULL,description text NOT NULL,priority text NOT NULL DEFAULT 'NORMAL',status text NOT NULL DEFAULT 'OPEN',property_id uuid REFERENCES properties(id) ON DELETE SET NULL,assigned_to uuid REFERENCES employees(id) ON DELETE SET NULL,created_by uuid REFERENCES employees(id) ON DELETE SET NULL,resolution text,closed_at timestamptz,created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now());
+CREATE TABLE IF NOT EXISTS confidential_inbox(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),sender_id uuid REFERENCES employees(id) ON DELETE SET NULL,sender_name text NOT NULL,kind text NOT NULL,subject text NOT NULL,message text NOT NULL,status text NOT NULL DEFAULT 'NEW',admin_response text,created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now());
+CREATE TABLE IF NOT EXISTS notifications(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),employee_id uuid REFERENCES employees(id) ON DELETE CASCADE,role_target text,title text NOT NULL,message text NOT NULL,link_tab text DEFAULT 'centro',read_at timestamptz,created_at timestamptz DEFAULT now());
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS resource_key text UNIQUE;
+CREATE TABLE IF NOT EXISTS contacts(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),owner_id uuid REFERENCES employees(id) ON DELETE CASCADE,scope text NOT NULL DEFAULT 'PERSONAL',name text NOT NULL,organization text,phone text,email text,address text,notes text,created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now());
+CREATE TABLE IF NOT EXISTS digital_notes(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),owner_id uuid NOT NULL REFERENCES employees(id) ON DELETE CASCADE,title text NOT NULL,body text DEFAULT '',color text DEFAULT 'gold',pinned boolean DEFAULT false,due_at timestamptz,created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now());
+CREATE TABLE IF NOT EXISTS calendar_events(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),owner_id uuid REFERENCES employees(id) ON DELETE CASCADE,scope text NOT NULL DEFAULT 'PERSONAL',title text NOT NULL,description text DEFAULT '',starts_at timestamptz NOT NULL,ends_at timestamptz,department text,location text,created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now());
+CREATE TABLE IF NOT EXISTS business_documents(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),folio bigserial UNIQUE,document_type text NOT NULL,title text NOT NULL,recipient_name text,recipient_email text,concepts jsonb NOT NULL DEFAULT '[]',subtotal numeric(12,2) DEFAULT 0,tax numeric(12,2) DEFAULT 0,total numeric(12,2) DEFAULT 0,notes text,attachment jsonb,created_by uuid REFERENCES employees(id) ON DELETE SET NULL,created_at timestamptz DEFAULT now());
+CREATE INDEX IF NOT EXISTS work_tickets_department_status_idx ON work_tickets(department,status,created_at DESC);
+CREATE INDEX IF NOT EXISTS notifications_employee_idx ON notifications(employee_id,read_at,created_at DESC);
+`);
+
 // Alteraciones para nuevas columnas (idempotentes)
 await q(`
   CREATE SEQUENCE IF NOT EXISTS employee_clock_seq START WITH 1001 INCREMENT BY 1;

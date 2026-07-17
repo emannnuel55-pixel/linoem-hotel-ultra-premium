@@ -397,6 +397,84 @@ app.put('/v1/cleaning-tasks/:id',role('SUPER_ADMIN','MANAGER','HOUSEKEEPING'),sa
   res.json(rows[0]);
 }));
 
+// ── CENTRO DE TRABAJO, TICKETS Y PRIVACIDAD ─────────────────────────────────
+const allStaff=['SUPER_ADMIN','MANAGER','FINANCE','RECEPTION','HOUSEKEEPING','MAINTENANCE'];
+const departmentForRole={FINANCE:'FINANCE',RECEPTION:'RECEPTION',HOUSEKEEPING:'HOUSEKEEPING',MAINTENANCE:'MAINTENANCE'};
+const canManageDepartment=(employee,department)=>['SUPER_ADMIN','MANAGER'].includes(employee.role)||departmentForRole[employee.role]===department;
+const ticketInput=z.object({department:z.enum(['RECEPTION','HOUSEKEEPING','MAINTENANCE','FINANCE','MANAGEMENT']),category:z.string().min(2).max(80),subject:z.string().min(3).max(160),description:z.string().min(5).max(4000),priority:z.enum(['LOW','NORMAL','HIGH','URGENT']).default('NORMAL'),propertyId:z.string().uuid().nullable().optional()});
+async function importGuestAlerts(){
+  try{
+    const tickets=(await qc(`SELECT id,folio,department,subject FROM service_requests WHERE created_at>now()-interval '30 days'`)).rows;
+    for(const item of tickets)await q(`INSERT INTO notifications(role_target,title,message,link_tab,resource_key) VALUES($1,$2,$3,'centro',$4) ON CONFLICT(resource_key) DO NOTHING`,[item.department,`Solicitud de huésped #${item.folio}`,item.subject,`client-ticket:${item.id}`]);
+    const feedback=(await qc(`SELECT id,subject FROM guest_feedback WHERE created_at>now()-interval '30 days'`)).rows;
+    for(const item of feedback)await q(`INSERT INTO notifications(role_target,title,message,link_tab,resource_key) VALUES('SUPER_ADMIN','Nuevo mensaje privado de huésped',$1,'buzon',$2) ON CONFLICT(resource_key) DO NOTHING`,[item.subject,`guest-feedback:${item.id}`]);
+    const reservations=(await qc(`SELECT r.id,p.name AS property_name,u.name AS guest_name FROM reservations r JOIN properties p ON p.id=r.property_id JOIN users u ON u.id=r.user_id WHERE r.created_at>now()-interval '30 days'`)).rows;
+    for(const item of reservations)await q(`INSERT INTO notifications(role_target,title,message,link_tab,resource_key) VALUES('RECEPTION','Nueva reservación',$1,'reservaciones',$2) ON CONFLICT(resource_key) DO NOTHING`,[`${item.guest_name} · ${item.property_name}`,`reservation:${item.id}`]);
+  }catch(error){console.error('Alertas de huéspedes pendientes:',error.message)}
+}
+
+app.get('/v1/workspace/summary',role(...allStaff),safe(async(req,res)=>{
+  await importGuestAlerts();
+  const ownDepartment=departmentForRole[req.employee.role];
+  const params=['SUPER_ADMIN','MANAGER'].includes(req.employee.role)?[]:[req.employee.id,ownDepartment||'NONE'];
+  const filter=params.length?'WHERE (created_by=$1 OR department=$2)':'';
+  const internal=(await q(`SELECT count(*) FILTER(WHERE status NOT IN('RESOLVED','CLOSED'))::int open,count(*) FILTER(WHERE priority='URGENT' AND status NOT IN('RESOLVED','CLOSED'))::int urgent FROM work_tickets ${filter}`,params)).rows[0];
+  let client={open:0,urgent:0};
+  try{client=(await qc(`SELECT count(*) FILTER(WHERE status NOT IN('RESOLVED','CLOSED'))::int open,count(*) FILTER(WHERE priority='URGENT' AND status NOT IN('RESOLVED','CLOSED'))::int urgent FROM service_requests ${['SUPER_ADMIN','MANAGER'].includes(req.employee.role)?'':'WHERE department=$1'}`,['SUPER_ADMIN','MANAGER'].includes(req.employee.role)?[]:[ownDepartment||'NONE'])).rows[0]}catch{}
+  const unread=(await q(`SELECT count(*)::int FROM notifications WHERE ${req.employee.role==='SUPER_ADMIN'?'true':'(employee_id=$1 OR role_target=$2 OR role_target=\'ALL\')'} AND read_at IS NULL`,req.employee.role==='SUPER_ADMIN'?[]:[req.employee.id,req.employee.role])).rows[0].count;
+  res.json({open:Number(internal.open||0)+Number(client.open||0),urgent:Number(internal.urgent||0)+Number(client.urgent||0),unread});
+}));
+
+app.get('/v1/workspace/tickets',role(...allStaff),safe(async(req,res)=>{
+  const admin=['SUPER_ADMIN','MANAGER'].includes(req.employee.role),dept=departmentForRole[req.employee.role]||'NONE';
+  const internal=(await q(`SELECT wt.*,p.name AS property_name,e.name AS assigned_name FROM work_tickets wt LEFT JOIN properties p ON p.id=wt.property_id LEFT JOIN employees e ON e.id=wt.assigned_to ${admin?'':'WHERE wt.created_by=$1 OR wt.department=$2'} ORDER BY wt.created_at DESC LIMIT 150`,admin?[]:[req.employee.id,dept])).rows.map(x=>({...x,source:'EMPLOYEE'}));
+  let client=[];try{client=(await qc(`SELECT sr.*,p.name AS property_name,u.name AS requester_name,u.email AS requester_email FROM service_requests sr LEFT JOIN properties p ON p.id=sr.property_id LEFT JOIN users u ON u.id=sr.user_id ${admin?'':'WHERE sr.department=$1'} ORDER BY sr.created_at DESC LIMIT 150`,admin?[]:[dept])).rows.map(x=>({...x,source:'CLIENT'}))}catch{}
+  res.json({items:[...internal,...client].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at))});
+}));
+
+app.post('/v1/workspace/tickets',role(...allStaff),safe(async(req,res)=>{
+  const d=ticketInput.parse(req.body);
+  const {rows}=await q(`INSERT INTO work_tickets(requester_id,requester_name,requester_email,department,category,subject,description,priority,property_id,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$1) RETURNING *`,[req.employee.id,req.employee.name,req.employee.email,d.department,d.category,d.subject,d.description,d.priority,d.propertyId||null]);
+  await q(`INSERT INTO notifications(role_target,title,message,link_tab) VALUES($1,$2,$3,'centro')`,[d.department==='MANAGEMENT'?'SUPER_ADMIN':d.department,`Nuevo ticket #${rows[0].folio}`,d.subject]);
+  res.status(201).json(rows[0]);
+}));
+
+app.put('/v1/workspace/tickets/:source/:id',role(...allStaff),safe(async(req,res)=>{
+  const d=z.object({status:z.enum(['OPEN','IN_PROGRESS','WAITING','RESOLVED','CLOSED']),resolution:z.string().max(4000).optional()}).parse(req.body);
+  const source=req.params.source.toUpperCase();
+  if(source==='CLIENT'){
+    const existing=(await qc('SELECT department FROM service_requests WHERE id=$1',[req.params.id])).rows[0];
+    if(!existing)return res.status(404).json({error:'Ticket no encontrado'});
+    if(!canManageDepartment(req.employee,existing.department))return res.status(403).json({error:'Este ticket pertenece a otro departamento'});
+    const {rows}=await qc(`UPDATE service_requests SET status=$1,resolution=COALESCE($2,resolution),assigned_name=$3,closed_at=CASE WHEN $1 IN('RESOLVED','CLOSED') THEN now() ELSE NULL END,updated_at=now() WHERE id=$4 RETURNING *`,[d.status,d.resolution,req.employee.name,req.params.id]);return res.json(rows[0]);
+  }
+  const existing=(await q('SELECT department,created_by FROM work_tickets WHERE id=$1',[req.params.id])).rows[0];
+  if(!existing)return res.status(404).json({error:'Ticket no encontrado'});
+  if(!canManageDepartment(req.employee,existing.department))return res.status(403).json({error:'Este ticket pertenece a otro departamento'});
+  const {rows}=await q(`UPDATE work_tickets SET status=$1,resolution=COALESCE($2,resolution),assigned_to=$3,closed_at=CASE WHEN $1 IN('RESOLVED','CLOSED') THEN now() ELSE NULL END,updated_at=now() WHERE id=$4 RETURNING *`,[d.status,d.resolution,req.employee.id,req.params.id]);
+  await q(`INSERT INTO notifications(employee_id,title,message,link_tab) VALUES($1,$2,$3,'centro')`,[existing.created_by,`Ticket #${rows[0].folio} actualizado`,`Estado: ${d.status}`]);res.json(rows[0]);
+}));
+
+app.post('/v1/workspace/confidential',role(...allStaff),safe(async(req,res)=>{const d=z.object({kind:z.enum(['COMPLAINT','SUGGESTION','IMPROVEMENT','PRIVATE']),subject:z.string().min(3).max(160),message:z.string().min(5).max(5000)}).parse(req.body);const {rows}=await q('INSERT INTO confidential_inbox(sender_id,sender_name,kind,subject,message) VALUES($1,$2,$3,$4,$5) RETURNING id,created_at',[req.employee.id,req.employee.name,d.kind,d.subject,d.message]);await q(`INSERT INTO notifications(role_target,title,message,link_tab) VALUES('SUPER_ADMIN','Nuevo mensaje confidencial',$1,'buzon')`,[d.subject]);res.status(201).json(rows[0])}));
+app.get('/v1/workspace/confidential',role('SUPER_ADMIN'),safe(async(_,res)=>{const employee=(await q('SELECT *,\'EMPLOYEE\' AS source FROM confidential_inbox')).rows;let guest=[];try{guest=(await qc(`SELECT gf.*,u.name AS sender_name,u.email AS sender_email,'CLIENT' AS source FROM guest_feedback gf LEFT JOIN users u ON u.id=gf.user_id`)).rows}catch{}res.json({items:[...employee,...guest].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at))})}));
+app.put('/v1/workspace/confidential/:source/:id',role('SUPER_ADMIN'),safe(async(req,res)=>{const d=z.object({status:z.enum(['NEW','REVIEWED','CLOSED']),response:z.string().max(4000).optional()}).parse(req.body);const db=req.params.source.toUpperCase()==='CLIENT'?qc:q;const table=req.params.source.toUpperCase()==='CLIENT'?'guest_feedback':'confidential_inbox';res.json((await db(`UPDATE ${table} SET status=$1,admin_response=$2,updated_at=now() WHERE id=$3 RETURNING *`,[d.status,d.response||null,req.params.id])).rows[0])}));
+
+app.get('/v1/workspace/notifications',role(...allStaff),safe(async(req,res)=>{await importGuestAlerts();res.json({items:(await q(`SELECT * FROM notifications ${req.employee.role==='SUPER_ADMIN'?'':'WHERE employee_id=$1 OR role_target=$2 OR role_target=\'ALL\''} ORDER BY created_at DESC LIMIT 50`,req.employee.role==='SUPER_ADMIN'?[]:[req.employee.id,req.employee.role])).rows})}));
+app.put('/v1/workspace/notifications/read',role(...allStaff),safe(async(req,res)=>{await q(`UPDATE notifications SET read_at=now() WHERE read_at IS NULL ${req.employee.role==='SUPER_ADMIN'?'':'AND (employee_id=$1 OR role_target=$2 OR role_target=\'ALL\')'}`,req.employee.role==='SUPER_ADMIN'?[]:[req.employee.id,req.employee.role]);res.json({success:true})}));
+
+app.get('/v1/workspace/contacts',role(...allStaff),safe(async(req,res)=>{const contacts=(await q(`SELECT * FROM contacts WHERE scope='SHARED' OR owner_id=$1 ORDER BY name`,[req.employee.id])).rows;const staff=(await q(`SELECT id,name,email,role,clock_number FROM employees WHERE active=true ORDER BY name`)).rows;res.json({contacts,staff})}));
+app.post('/v1/workspace/contacts',role(...allStaff),safe(async(req,res)=>{const d=z.object({scope:z.enum(['PERSONAL','SHARED']),name:z.string().min(2),organization:z.string().optional(),phone:z.string().optional(),email:z.string().optional(),address:z.string().optional(),notes:z.string().optional()}).parse(req.body);if(d.scope==='SHARED'&&!['SUPER_ADMIN','MANAGER'].includes(req.employee.role))return res.status(403).json({error:'Solo gerencia puede crear contactos compartidos'});res.status(201).json((await q('INSERT INTO contacts(owner_id,scope,name,organization,phone,email,address,notes) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *',[req.employee.id,d.scope,d.name,d.organization||'',d.phone||'',d.email||'',d.address||'',d.notes||''])).rows[0])}));
+
+app.get('/v1/workspace/notes',role(...allStaff),safe(async(req,res)=>res.json({items:(await q('SELECT * FROM digital_notes WHERE owner_id=$1 ORDER BY pinned DESC,updated_at DESC',[req.employee.id])).rows})));
+app.post('/v1/workspace/notes',role(...allStaff),safe(async(req,res)=>{const d=z.object({title:z.string().min(1).max(120),body:z.string().max(2000).optional(),color:z.string().max(20).optional(),pinned:z.boolean().optional(),dueAt:z.string().nullable().optional()}).parse(req.body);res.status(201).json((await q('INSERT INTO digital_notes(owner_id,title,body,color,pinned,due_at) VALUES($1,$2,$3,$4,$5,$6) RETURNING *',[req.employee.id,d.title,d.body||'',d.color||'gold',d.pinned||false,d.dueAt||null])).rows[0])}));
+app.delete('/v1/workspace/notes/:id',role(...allStaff),safe(async(req,res)=>{await q('DELETE FROM digital_notes WHERE id=$1 AND owner_id=$2',[req.params.id,req.employee.id]);res.json({success:true})}));
+
+app.get('/v1/workspace/calendar',role(...allStaff),safe(async(req,res)=>res.json({items:(await q(`SELECT * FROM calendar_events WHERE owner_id=$1 OR scope='SHARED' OR (scope='DEPARTMENT' AND department=$2) ORDER BY starts_at`,[req.employee.id,departmentForRole[req.employee.role]||'NONE'])).rows})));
+app.post('/v1/workspace/calendar',role(...allStaff),safe(async(req,res)=>{const d=z.object({scope:z.enum(['PERSONAL','DEPARTMENT','SHARED']),title:z.string().min(2),description:z.string().optional(),startsAt:z.string(),endsAt:z.string().nullable().optional(),department:z.string().nullable().optional(),location:z.string().optional()}).parse(req.body);if(d.scope==='SHARED'&&!['SUPER_ADMIN','MANAGER'].includes(req.employee.role))return res.status(403).json({error:'Solo gerencia puede publicar eventos generales'});res.status(201).json((await q('INSERT INTO calendar_events(owner_id,scope,title,description,starts_at,ends_at,department,location) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *',[req.employee.id,d.scope,d.title,d.description||'',d.startsAt,d.endsAt||null,d.department||departmentForRole[req.employee.role]||null,d.location||''])).rows[0])}));
+
+app.get('/v1/workspace/documents',role('SUPER_ADMIN','MANAGER','FINANCE'),safe(async(_,res)=>res.json({items:(await q('SELECT d.*,e.name AS created_by_name FROM business_documents d LEFT JOIN employees e ON e.id=d.created_by ORDER BY d.created_at DESC')).rows})));
+app.post('/v1/workspace/documents',role('SUPER_ADMIN','MANAGER','FINANCE'),safe(async(req,res)=>{const d=z.object({documentType:z.enum(['PURCHASE_TICKET','RECEIPT','QUOTE','INTERNAL']),title:z.string().min(2),recipientName:z.string().optional(),recipientEmail:z.string().optional(),concepts:z.array(z.object({description:z.string(),quantity:z.number().positive(),unitPrice:z.number().nonnegative()})).min(1),taxRate:z.number().min(0).max(1).default(0),notes:z.string().optional(),attachment:z.any().optional()}).parse(req.body);const subtotal=d.concepts.reduce((s,x)=>s+x.quantity*x.unitPrice,0),tax=subtotal*d.taxRate;res.status(201).json((await q('INSERT INTO business_documents(document_type,title,recipient_name,recipient_email,concepts,subtotal,tax,total,notes,attachment,created_by) VALUES($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10::jsonb,$11) RETURNING *',[d.documentType,d.title,d.recipientName||'',d.recipientEmail||'',JSON.stringify(d.concepts),subtotal,tax,subtotal+tax,d.notes||'',JSON.stringify(d.attachment||null),req.employee.id])).rows[0])}));
+
 // ── GASTOS ────────────────────────────────────────────────────────────────────
 app.get('/v1/expenses',role('SUPER_ADMIN','FINANCE'),safe(async(_,res)=>res.json({items:(await q('SELECT * FROM expenses ORDER BY occurred_on DESC')).rows})));
 app.post('/v1/expenses',role('SUPER_ADMIN','FINANCE'),safe(async(req,res)=>{const d=z.object({category:z.string(),kind:z.enum(['FIXED','VARIABLE','ASSET']),description:z.string(),amount:z.number().positive(),occurredOn:z.string()}).parse(req.body);res.status(201).json((await q('INSERT INTO expenses(category,kind,description,amount,occurred_on) VALUES($1,$2,$3,$4,$5) RETURNING *',[d.category,d.kind,d.description,d.amount,d.occurredOn])).rows[0])}));
@@ -420,6 +498,19 @@ await q(`CREATE TABLE IF NOT EXISTS cleaning_tasks(
   created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS cleaning_tasks_status_idx ON cleaning_tasks(status,requested_for);`);
+
+// Migración idempotente del Centro de Trabajo (también funciona sin pre-deploy).
+await q(`
+CREATE TABLE IF NOT EXISTS work_tickets(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),folio bigserial UNIQUE,source text NOT NULL DEFAULT 'EMPLOYEE',requester_id uuid,requester_name text NOT NULL,requester_email text,department text NOT NULL,category text NOT NULL,subject text NOT NULL,description text NOT NULL,priority text NOT NULL DEFAULT 'NORMAL',status text NOT NULL DEFAULT 'OPEN',property_id uuid REFERENCES properties(id) ON DELETE SET NULL,assigned_to uuid REFERENCES employees(id) ON DELETE SET NULL,created_by uuid REFERENCES employees(id) ON DELETE SET NULL,resolution text,closed_at timestamptz,created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now());
+CREATE TABLE IF NOT EXISTS confidential_inbox(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),sender_id uuid REFERENCES employees(id) ON DELETE SET NULL,sender_name text NOT NULL,kind text NOT NULL,subject text NOT NULL,message text NOT NULL,status text NOT NULL DEFAULT 'NEW',admin_response text,created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now());
+CREATE TABLE IF NOT EXISTS notifications(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),employee_id uuid REFERENCES employees(id) ON DELETE CASCADE,role_target text,title text NOT NULL,message text NOT NULL,link_tab text DEFAULT 'centro',read_at timestamptz,created_at timestamptz DEFAULT now());
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS resource_key text UNIQUE;
+CREATE TABLE IF NOT EXISTS contacts(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),owner_id uuid REFERENCES employees(id) ON DELETE CASCADE,scope text NOT NULL DEFAULT 'PERSONAL',name text NOT NULL,organization text,phone text,email text,address text,notes text,created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now());
+CREATE TABLE IF NOT EXISTS digital_notes(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),owner_id uuid NOT NULL REFERENCES employees(id) ON DELETE CASCADE,title text NOT NULL,body text DEFAULT '',color text DEFAULT 'gold',pinned boolean DEFAULT false,due_at timestamptz,created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now());
+CREATE TABLE IF NOT EXISTS calendar_events(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),owner_id uuid REFERENCES employees(id) ON DELETE CASCADE,scope text NOT NULL DEFAULT 'PERSONAL',title text NOT NULL,description text DEFAULT '',starts_at timestamptz NOT NULL,ends_at timestamptz,department text,location text,created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now());
+CREATE TABLE IF NOT EXISTS business_documents(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),folio bigserial UNIQUE,document_type text NOT NULL,title text NOT NULL,recipient_name text,recipient_email text,concepts jsonb NOT NULL DEFAULT '[]',subtotal numeric(12,2) DEFAULT 0,tax numeric(12,2) DEFAULT 0,total numeric(12,2) DEFAULT 0,notes text,attachment jsonb,created_by uuid REFERENCES employees(id) ON DELETE SET NULL,created_at timestamptz DEFAULT now());
+CREATE INDEX IF NOT EXISTS work_tickets_department_status_idx ON work_tickets(department,status,created_at DESC);
+CREATE INDEX IF NOT EXISTS notifications_employee_idx ON notifications(employee_id,read_at,created_at DESC);`);
 
 app.listen(process.env.PORT||4001,()=>{
   console.log('API empleados lista v3 — sincronización automática activa');

@@ -148,6 +148,18 @@ app.post('/v1/reservations/hold', auth, safe(async (req, res) => {
   res.status(201).json(rows[0]);
 }));
 
+// Solicitudes del huésped: cada categoría se canaliza al departamento indicado.
+app.get('/v1/me/service-requests',auth,safe(async(req,res)=>{
+  const {rows}=await q(`SELECT sr.id,sr.folio,sr.department,sr.category,sr.subject,sr.description,sr.priority,sr.status,sr.resolution,sr.assigned_name AS "assignedName",sr.created_at AS "createdAt",sr.updated_at AS "updatedAt",p.name AS "propertyName" FROM service_requests sr LEFT JOIN properties p ON p.id=sr.property_id WHERE sr.user_id=$1 ORDER BY sr.created_at DESC`,[req.user.sub]);
+  res.json({items:rows});
+}));
+app.post('/v1/me/service-requests',auth,safe(async(req,res)=>{
+  const d=z.object({reservationId:z.string().uuid().nullable().optional(),propertyId:z.string().uuid().nullable().optional(),department:z.enum(['RECEPTION','HOUSEKEEPING','MAINTENANCE','FINANCE']),category:z.string().min(2).max(80),subject:z.string().min(3).max(160),description:z.string().min(5).max(4000),priority:z.enum(['LOW','NORMAL','HIGH','URGENT']).default('NORMAL')}).parse(req.body);
+  if(d.reservationId){const owns=(await q('SELECT 1 FROM reservations WHERE id=$1 AND user_id=$2',[d.reservationId,req.user.sub])).rowCount;if(!owns)return res.status(403).json({error:'La reservación no pertenece a tu cuenta'})}
+  const {rows}=await q(`INSERT INTO service_requests(user_id,reservation_id,property_id,department,category,subject,description,priority) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,[req.user.sub,d.reservationId||null,d.propertyId||null,d.department,d.category,d.subject,d.description,d.priority]);res.status(201).json(rows[0]);
+}));
+app.post('/v1/me/feedback',auth,safe(async(req,res)=>{const d=z.object({kind:z.enum(['COMPLAINT','SUGGESTION','IMPROVEMENT','QUESTION']),subject:z.string().min(3).max(160),message:z.string().min(5).max(5000)}).parse(req.body);res.status(201).json((await q('INSERT INTO guest_feedback(user_id,kind,subject,message) VALUES($1,$2,$3,$4) RETURNING id,created_at',[req.user.sub,d.kind,d.subject,d.message])).rows[0])}));
+
 const catalogSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
@@ -211,6 +223,9 @@ app.post('/internal/promotions', requireSyncSecret, safe(async (req, res) => {
     data.sortOrder, data.version]);
   res.status(202).json({ accepted: true });
 }));
+
+await q(`CREATE TABLE IF NOT EXISTS service_requests(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),folio bigserial UNIQUE,user_id uuid REFERENCES users(id) ON DELETE SET NULL,reservation_id uuid REFERENCES reservations(id) ON DELETE SET NULL,property_id uuid REFERENCES properties(id) ON DELETE SET NULL,department text NOT NULL,category text NOT NULL,subject text NOT NULL,description text NOT NULL,priority text NOT NULL DEFAULT 'NORMAL',status text NOT NULL DEFAULT 'OPEN',resolution text,assigned_name text,created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now(),closed_at timestamptz);
+CREATE TABLE IF NOT EXISTS guest_feedback(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid REFERENCES users(id) ON DELETE SET NULL,kind text NOT NULL,subject text NOT NULL,message text NOT NULL,status text NOT NULL DEFAULT 'NEW',admin_response text,created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now());`);
 
 app.use((error, req, res, _next) => {
   console.error(error.message);

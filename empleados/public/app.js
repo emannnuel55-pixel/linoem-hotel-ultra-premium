@@ -11,6 +11,8 @@ let employees = [];
 let payrolls = [];
 let promotions = [];
 let cleaningTasks = [];
+let workTickets = [], notifications = [], contacts = [], staffDirectory = [], digitalNotes = [], calendarEvents = [], businessDocuments = [], confidentialMessages = [];
+let workspaceSummary = {open:0,urgent:0,unread:0};
 let currentEmployee = null;
 let dashboard = {
   generatedAt: null, sources: { operations: true, clients: true },
@@ -64,7 +66,7 @@ async function load() {
     }
   }
   try {
-    const [resDash, resProp, resExp, resUsers, resRes, resEmp, resPay, resPromos, resCleaning] = await Promise.all([
+    const [resDash, resProp, resExp, resUsers, resRes, resEmp, resPay, resPromos, resCleaning, resWorkspace, resTickets, resNotices, resContacts, resNotes, resCalendar, resDocuments, resInbox] = await Promise.all([
       fetch(API + '/v1/dashboard', { headers: headers() }).then(r => r.json()).catch(() => null),
       fetch(API + '/v1/properties', { headers: headers() }).then(r => r.json()).catch(() => null),
       fetch(API + '/v1/expenses', { headers: headers() }).then(r => r.json()).catch(() => null),
@@ -73,7 +75,15 @@ async function load() {
       fetch(API + '/v1/employees', { headers: headers() }).then(r => r.json()).catch(() => null),
       fetch(API + '/v1/payroll', { headers: headers() }).then(r => r.json()).catch(() => null),
       fetch(API + '/v1/promotions', { headers: headers() }).then(r => r.json()).catch(() => null),
-      fetch(API + '/v1/cleaning-tasks', { headers: headers() }).then(r => r.json()).catch(() => null)
+      fetch(API + '/v1/cleaning-tasks', { headers: headers() }).then(r => r.json()).catch(() => null),
+      fetch(API + '/v1/workspace/summary', { headers: headers() }).then(r => r.json()).catch(() => null),
+      fetch(API + '/v1/workspace/tickets', { headers: headers() }).then(r => r.json()).catch(() => null),
+      fetch(API + '/v1/workspace/notifications', { headers: headers() }).then(r => r.json()).catch(() => null),
+      fetch(API + '/v1/workspace/contacts', { headers: headers() }).then(r => r.json()).catch(() => null),
+      fetch(API + '/v1/workspace/notes', { headers: headers() }).then(r => r.json()).catch(() => null),
+      fetch(API + '/v1/workspace/calendar', { headers: headers() }).then(r => r.json()).catch(() => null),
+      fetch(API + '/v1/workspace/documents', { headers: headers() }).then(r => r.json()).catch(() => null),
+      currentEmployee?.role==='SUPER_ADMIN' ? fetch(API + '/v1/workspace/confidential', { headers: headers() }).then(r => r.json()).catch(() => null) : Promise.resolve(null)
     ]);
 
     if (resDash && resDash.properties) dashboard = resDash;
@@ -85,6 +95,14 @@ async function load() {
     if (resPay && resPay.items) payrolls = resPay.items;
     if (resPromos && resPromos.items) promotions = resPromos.items;
     if (resCleaning && resCleaning.items) cleaningTasks = resCleaning.items;
+    if (resWorkspace) workspaceSummary = resWorkspace;
+    if (resTickets?.items) workTickets = resTickets.items;
+    if (resNotices?.items) notifications = resNotices.items;
+    if (resContacts) { contacts = resContacts.contacts || []; staffDirectory = resContacts.staff || []; }
+    if (resNotes?.items) digitalNotes = resNotes.items;
+    if (resCalendar?.items) calendarEvents = resCalendar.items;
+    if (resDocuments?.items) businessDocuments = resDocuments.items;
+    if (resInbox?.items) confidentialMessages = resInbox.items;
   } catch (err) {
     console.error('Error loading data:', err);
   }
@@ -170,6 +188,12 @@ function render() {
     { id: 'reservaciones', label: '▣ Reservaciones' },
     { id: 'limpieza', label: '✓ Limpieza' },
     { id: 'mantenimiento', label: '⚒ Mantenimiento' },
+    { id: 'centro', label: `◉ Centro de tickets${workspaceSummary.open ? ` (${workspaceSummary.open})` : ''}` },
+    ...(currentEmployee?.role === 'SUPER_ADMIN' ? [{ id: 'buzon', label: '✉ Buzón confidencial' }] : []),
+    ...(['SUPER_ADMIN','MANAGER','FINANCE'].includes(currentEmployee?.role) ? [{ id: 'documentos', label: '▤ Documentos / Recibos' }] : []),
+    { id: 'notas', label: '◆ Post-its' },
+    { id: 'directorio', label: '☏ Directorio' },
+    { id: 'agenda', label: '▦ Agenda / Calendario' },
     { id: 'finanzas', label: '$ Finanzas' },
     { id: 'personal', label: '♙ Personal' },
     { id: 'nomina', label: '◫ Nómina' },
@@ -526,6 +550,23 @@ function render() {
         </div>
       </section>
     `;
+  } else if (currentTab === 'centro') {
+    const openTickets=workTickets.filter(t=>!['RESOLVED','CLOSED'].includes(t.status));
+    mainContent=`<header class="head"><div><span class="section-kicker">FLUJO INTERDEPARTAMENTAL</span><h1>Centro de tickets</h1><p>Solicitudes de huéspedes y personal, canalizadas al departamento responsable.</p></div><div class="head-actions"><button class="btn-soft" onclick="openConfidentialModal()">🔒 Mensaje privado</button><button class="add add-with-label" onclick="openTicketModal()">+ Nuevo ticket</button></div></header>
+    <section class="workspace-summary"><article><span>◉</span><div><strong>${workspaceSummary.open||0}</strong><small>Tickets abiertos</small></div></article><article><span>!</span><div><strong>${workspaceSummary.urgent||0}</strong><small>Prioridad urgente</small></div></article><article><span>✓</span><div><strong>${workTickets.filter(t=>['RESOLVED','CLOSED'].includes(t.status)).length}</strong><small>Resueltos visibles</small></div></article></section>
+    <section class="box workspace-board"><div class="section-heading"><div><span class="section-kicker">BANDEJA OPERATIVA</span><h3>Seguimiento de solicitudes</h3><p>Cada departamento solamente puede gestionar los tickets que le corresponden.</p></div></div>
+    <div class="ticket-grid">${workTickets.length?workTickets.map(t=>`<article class="ticket-card priority-${String(t.priority).toLowerCase()}"><div class="ticket-top"><span>#${t.folio||'—'} · ${escapeHtml(t.source==='CLIENT'?'Huésped':'Personal')}</span><em>${escapeHtml(t.priority)}</em></div><h3>${escapeHtml(t.subject)}</h3><p>${escapeHtml(t.description)}</p><div class="ticket-meta"><span>${escapeHtml(t.department)}</span><span>${escapeHtml(t.property_name||'General')}</span><span>${new Date(t.created_at).toLocaleString('es-MX')}</span></div><div class="ticket-requester">Solicita: <b>${escapeHtml(t.requester_name||'Huésped HTJ')}</b></div>${t.resolution?`<div class="ticket-resolution"><b>Resolución:</b> ${escapeHtml(t.resolution)}</div>`:''}<div class="ticket-actions"><span class="ticket-status status-${String(t.status).toLowerCase()}">${escapeHtml(t.status)}</span>${!['RESOLVED','CLOSED'].includes(t.status)?`<button onclick="openTicketUpdateModal('${t.source}','${t.id}','${escapeHtml(t.subject).replace(/'/g,'&#39;')}')">Atender / cerrar</button>`:''}</div></article>`).join(''):'<div class="empty-state"><span>✓</span><b>No hay tickets visibles</b><p>Las nuevas solicitudes aparecerán aquí automáticamente.</p></div>'}</div></section>`;
+  } else if (currentTab === 'buzon' && currentEmployee?.role==='SUPER_ADMIN') {
+    mainContent=`<header class="head"><div><span class="section-kicker">ACCESO EXCLUSIVO DEL ADMINISTRADOR</span><h1>Buzón confidencial</h1><p>Quejas, sugerencias y oportunidades de mejora. Esta sección no se entrega a otros roles.</p></div></header><div class="privacy-banner">🔒 Contenido privado protegido por autenticación y permisos de servidor.</div><section class="confidential-grid">${confidentialMessages.length?confidentialMessages.map(m=>`<article class="box confidential-card"><div><span>${escapeHtml(m.source)} · ${escapeHtml(m.kind)}</span><em>${escapeHtml(m.status)}</em></div><h3>${escapeHtml(m.subject)}</h3><p>${escapeHtml(m.message)}</p><small>${escapeHtml(m.sender_name||'Huésped')} · ${new Date(m.created_at).toLocaleString('es-MX')}</small>${m.admin_response?`<blockquote>${escapeHtml(m.admin_response)}</blockquote>`:''}<button onclick="openConfidentialReply('${m.source}','${m.id}')">Revisar / responder</button></article>`).join(''):'<div class="box empty-state"><span>✉</span><b>Buzón vacío</b></div>'}</section>`;
+  } else if (currentTab === 'documentos') {
+    mainContent=`<header class="head"><div><span class="section-kicker">ADMINISTRACIÓN HTJ</span><h1>Documentos y comprobantes</h1><p>Genera recibos, tickets de compra y cotizaciones con identidad oficial del hotel.</p></div><button class="add add-with-label" onclick="openDocumentModal()">+ Generar documento</button></header><section class="document-stats"><article><b>${businessDocuments.length}</b><span>Documentos</span></article><article><b>${money(businessDocuments.reduce((s,d)=>s+Number(d.total||0),0))}</b><span>Valor registrado</span></article></section><section class="document-grid">${businessDocuments.length?businessDocuments.map(d=>`<article class="box document-card"><img src="/logo-htj.png" alt="HTJ"><div><span>${escapeHtml(d.document_type)} · #${d.folio}</span><h3>${escapeHtml(d.title)}</h3><p>${escapeHtml(d.recipient_name||'Documento interno')}</p></div><strong>${money(d.total)}</strong><button onclick="downloadBusinessDocument('${d.id}')">Descargar PDF</button></article>`).join(''):'<div class="box empty-state"><span>▤</span><b>Aún no hay documentos</b><p>Crea el primer recibo o ticket de compra.</p></div>'}</section>`;
+  } else if (currentTab === 'notas') {
+    mainContent=`<header class="head"><div><span class="section-kicker">ESPACIO PERSONAL</span><h1>Post-its digitales</h1><p>Tus notas son privadas y solamente aparecen en tu cuenta.</p></div><button class="add add-with-label" onclick="openNoteModal()">+ Nueva nota</button></header><section class="notes-board">${digitalNotes.length?digitalNotes.map(n=>`<article class="digital-note note-${escapeHtml(n.color)}"><button onclick="deleteNote('${n.id}')">×</button><span>${n.pinned?'◆ FIJADA':'NOTA PERSONAL'}</span><h3>${escapeHtml(n.title)}</h3><p>${escapeHtml(n.body)}</p>${n.due_at?`<small>Recordatorio: ${new Date(n.due_at).toLocaleString('es-MX')}</small>`:''}</article>`).join(''):'<div class="box empty-state"><span>◆</span><b>Tu tablero está libre</b><p>Agrega recordatorios, pendientes o ideas.</p></div>'}</section>`;
+  } else if (currentTab === 'directorio') {
+    mainContent=`<header class="head"><div><span class="section-kicker">CONTACTOS HTJ</span><h1>Directorio</h1><p>Personal del hotel, contactos compartidos y tu agenda privada.</p></div><button class="add add-with-label" onclick="openContactModal()">+ Contacto</button></header><section class="directory-section"><h3>Equipo del hotel</h3><div class="directory-grid">${staffDirectory.map(e=>`<article class="contact-card"><span>${escapeHtml(e.name?.charAt(0)||'H')}</span><div><b>${escapeHtml(e.name)}</b><small>${escapeHtml(e.role)} · Reloj #${e.clock_number||'—'}</small><a href="mailto:${escapeHtml(e.email)}">${escapeHtml(e.email)}</a></div></article>`).join('')}</div></section><section class="directory-section"><h3>Contactos guardados</h3><div class="directory-grid">${contacts.length?contacts.map(c=>`<article class="contact-card"><span>☏</span><div><b>${escapeHtml(c.name)}</b><small>${escapeHtml(c.organization||c.scope)}</small><a href="tel:${escapeHtml(c.phone||'')}">${escapeHtml(c.phone||'Sin teléfono')}</a><a href="mailto:${escapeHtml(c.email||'')}">${escapeHtml(c.email||'')}</a></div></article>`).join(''):'<p class="muted">No hay contactos adicionales.</p>'}</div></section>`;
+  } else if (currentTab === 'agenda') {
+    const sorted=[...calendarEvents].sort((a,b)=>new Date(a.starts_at)-new Date(b.starts_at));
+    mainContent=`<header class="head"><div><span class="section-kicker">ORGANIZACIÓN</span><h1>Agenda y calendario</h1><p>Eventos personales, departamentales y generales en una sola vista.</p></div><button class="add add-with-label" onclick="openCalendarModal()">+ Nuevo evento</button></header><section class="calendar-shell"><div class="calendar-date"><b>${new Date().toLocaleDateString('es-MX',{day:'2-digit'})}</b><span>${new Date().toLocaleDateString('es-MX',{month:'long',year:'numeric'})}</span></div><div class="calendar-timeline">${sorted.length?sorted.map(e=>`<article><time>${new Date(e.starts_at).toLocaleDateString('es-MX',{day:'2-digit',month:'short'})}<b>${new Date(e.starts_at).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})}</b></time><i></i><div><span>${escapeHtml(e.scope)}${e.department?' · '+escapeHtml(e.department):''}</span><h3>${escapeHtml(e.title)}</h3><p>${escapeHtml(e.description||'')}${e.location?' · '+escapeHtml(e.location):''}</p></div></article>`).join(''):'<div class="box empty-state"><span>▦</span><b>Sin eventos programados</b></div>'}</div></section>`;
   } else if (currentTab === 'finanzas') {
     const totalExpenses = expenses.reduce((a, b) => a + Number(b.amount), 0);
     mainContent = `
@@ -760,6 +801,8 @@ function render() {
         </div>
       </aside>
       <main class="main">
+        <button class="notification-bell" id="notificationBell" aria-label="Notificaciones">♢${workspaceSummary.unread?`<b>${workspaceSummary.unread}</b>`:''}</button>
+        <aside class="notification-panel" id="notificationPanel" hidden><div class="notification-panel-head"><div><span class="section-kicker">ACTUALIZACIONES</span><h3>Notificaciones</h3></div><button id="markNoticesRead">Marcar leídas</button></div><div>${notifications.length?notifications.map(n=>`<button class="notice-item ${n.read_at?'':'unread'}" data-notice-tab="${escapeHtml(n.link_tab||'centro')}"><i></i><span><b>${escapeHtml(n.title)}</b><small>${escapeHtml(n.message)}</small><time>${new Date(n.created_at).toLocaleString('es-MX')}</time></span></button>`).join(''):'<p class="notification-empty">No tienes notificaciones.</p>'}</div></aside>
         ${mainContent}
       </main>
     </div>
@@ -769,6 +812,7 @@ function render() {
         { id: 'propiedades', icon: '⌂', label: 'Unidades' },
         { id: 'promociones', icon: '✦', label: 'Promos' },
         { id: 'reservaciones', icon: '▣', label: 'Reservas' },
+        { id: 'centro', icon: '◉', label: 'Tickets' },
         { id: 'finanzas', icon: '$', label: 'Finanzas' },
         { id: 'configuracion', icon: '⚙', label: 'Usuarios' }
       ].map(m => `
@@ -813,6 +857,10 @@ function render() {
       render();
     };
   }
+  const bell=document.querySelector('#notificationBell'),noticePanel=document.querySelector('#notificationPanel');
+  if(bell&&noticePanel)bell.onclick=()=>{noticePanel.hidden=!noticePanel.hidden};
+  document.querySelector('#markNoticesRead')?.addEventListener('click',async()=>{await fetch(API+'/v1/workspace/notifications/read',{method:'PUT',headers:headers()});await load()});
+  document.querySelectorAll('[data-notice-tab]').forEach(button=>button.addEventListener('click',()=>{currentTab=button.dataset.noticeTab;render()}));
   document.querySelector('#employeeLogout')?.addEventListener('click', () => {
     localStorage.removeItem('employeeToken');
     currentEmployee = null;
@@ -2033,6 +2081,21 @@ window.publishProperty = async function(id) {
     alert('Error de red al publicar: ' + err.message);
   }
 };
+
+async function workspaceRequest(path,method='POST',body){const response=await fetch(API+path,{method,headers:headers(),body:body===undefined?undefined:JSON.stringify(body)});const data=await response.json().catch(()=>({}));if(!response.ok)throw Error(data.error||'No fue posible guardar');return data}
+
+window.openTicketModal=function(){modal('Nuevo ticket departamental',`<form id="workspaceTicketForm" class="premium-form"><div class="form-intro"><span>◉</span><div><b>Canalización automática</b><p>El ticket será visible para el departamento seleccionado.</p></div></div><div class="form-grid-premium"><label>Departamento<select name="department"><option value="RECEPTION">Recepción</option><option value="HOUSEKEEPING">Limpieza</option><option value="MAINTENANCE">Mantenimiento</option><option value="FINANCE">Finanzas / pagos</option><option value="MANAGEMENT">Gerencia</option></select></label><label>Prioridad<select name="priority"><option value="NORMAL">Normal</option><option value="HIGH">Alta</option><option value="URGENT">Urgente</option><option value="LOW">Baja</option></select></label><label>Categoría<input name="category" required placeholder="Ej. solicitud, compra, incidente"></label><label>Propiedad<select name="propertyId"><option value="">General</option>${properties.map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')}</select></label><label class="full">Asunto<input name="subject" required maxlength="160"></label><label class="full">Descripción<textarea name="description" required rows="5"></textarea></label></div><button class="primary premium-submit">Crear y enviar ticket</button></form>`);document.querySelector('#workspaceTicketForm').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target);try{await workspaceRequest('/v1/workspace/tickets','POST',{department:f.get('department'),priority:f.get('priority'),category:f.get('category'),propertyId:f.get('propertyId')||null,subject:f.get('subject'),description:f.get('description')});document.querySelector('.modal')?.remove();await load()}catch(x){alert(x.message)}}};
+window.openTicketUpdateModal=function(source,id,title){modal('Atender ticket',`<form id="ticketUpdateForm" class="premium-form"><div class="form-intro success"><span>✓</span><div><b>${title}</b><p>Registra el avance o la resolución antes de cerrar.</p></div></div><label class="field-block">Estado<select name="status"><option value="IN_PROGRESS">En proceso</option><option value="WAITING">En espera</option><option value="RESOLVED">Resuelto</option><option value="CLOSED">Cerrado</option></select></label><label class="field-block">Resolución / seguimiento<textarea name="resolution" rows="5"></textarea></label><button class="primary premium-submit">Guardar actualización</button></form>`);document.querySelector('#ticketUpdateForm').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target);try{await workspaceRequest(`/v1/workspace/tickets/${source}/${id}`,'PUT',{status:f.get('status'),resolution:f.get('resolution')});document.querySelector('.modal')?.remove();await load()}catch(x){alert(x.message)}}};
+window.openConfidentialModal=function(){modal('Mensaje privado al administrador',`<form id="privateInboxForm" class="premium-form"><div class="privacy-form-note">🔒 El contenido únicamente puede ser consultado por una cuenta SUPER_ADMIN.</div><label class="field-block">Tipo<select name="kind"><option value="SUGGESTION">Sugerencia</option><option value="IMPROVEMENT">Mejora</option><option value="COMPLAINT">Queja</option><option value="PRIVATE">Asunto privado</option></select></label><label class="field-block">Asunto<input name="subject" required></label><label class="field-block">Mensaje<textarea name="message" rows="7" required></textarea></label><button class="primary premium-submit">Enviar de forma confidencial</button></form>`);document.querySelector('#privateInboxForm').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target);try{await workspaceRequest('/v1/workspace/confidential','POST',{kind:f.get('kind'),subject:f.get('subject'),message:f.get('message')});document.querySelector('.modal')?.remove();alert('Mensaje entregado de forma privada al administrador.')}catch(x){alert(x.message)}}};
+window.openConfidentialReply=function(source,id){modal('Revisión confidencial',`<form id="confidentialReplyForm" class="premium-form"><label class="field-block">Estado<select name="status"><option value="REVIEWED">Revisado</option><option value="CLOSED">Cerrado</option><option value="NEW">Nuevo</option></select></label><label class="field-block">Respuesta administrativa<textarea name="response" rows="6"></textarea></label><button class="primary premium-submit">Guardar revisión</button></form>`);document.querySelector('#confidentialReplyForm').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target);try{await workspaceRequest(`/v1/workspace/confidential/${source}/${id}`,'PUT',{status:f.get('status'),response:f.get('response')});document.querySelector('.modal')?.remove();await load()}catch(x){alert(x.message)}}};
+
+window.openNoteModal=function(){modal('Nuevo post-it',`<form id="noteForm" class="premium-form"><label class="field-block">Título<input name="title" required></label><label class="field-block">Nota<textarea name="body" rows="6"></textarea></label><div class="form-grid-premium"><label>Color<select name="color"><option value="gold">Dorado</option><option value="blue">Azul</option><option value="green">Verde</option><option value="rose">Rosa</option></select></label><label>Recordatorio<input type="datetime-local" name="dueAt"></label><label class="full"><span><input type="checkbox" name="pinned" style="width:auto"> Fijar nota</span></label></div><button class="primary premium-submit">Guardar nota privada</button></form>`);document.querySelector('#noteForm').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target);await workspaceRequest('/v1/workspace/notes','POST',{title:f.get('title'),body:f.get('body'),color:f.get('color'),dueAt:f.get('dueAt')||null,pinned:f.has('pinned')});document.querySelector('.modal')?.remove();await load()}};
+window.deleteNote=async id=>{if(confirm('¿Eliminar esta nota?')){await workspaceRequest('/v1/workspace/notes/'+id,'DELETE');await load()}};
+window.openContactModal=function(){modal('Agregar contacto',`<form id="contactForm" class="premium-form"><div class="form-grid-premium"><label>Visibilidad<select name="scope"><option value="PERSONAL">Solo para mí</option>${['SUPER_ADMIN','MANAGER'].includes(currentEmployee?.role)?'<option value="SHARED">Compartido con el equipo</option>':''}</select></label><label>Nombre<input name="name" required></label><label>Empresa / relación<input name="organization"></label><label>Teléfono<input name="phone" type="tel"></label><label>Correo<input name="email" type="email"></label><label>Dirección<input name="address"></label><label class="full">Notas<textarea name="notes"></textarea></label></div><button class="primary premium-submit">Guardar contacto</button></form>`);document.querySelector('#contactForm').onsubmit=async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));await workspaceRequest('/v1/workspace/contacts','POST',f);document.querySelector('.modal')?.remove();await load()}};
+window.openCalendarModal=function(){modal('Nuevo evento',`<form id="calendarForm" class="premium-form"><div class="form-grid-premium"><label>Visibilidad<select name="scope"><option value="PERSONAL">Personal</option><option value="DEPARTMENT">Mi departamento</option>${['SUPER_ADMIN','MANAGER'].includes(currentEmployee?.role)?'<option value="SHARED">Todo el hotel</option>':''}</select></label><label>Título<input name="title" required></label><label>Inicio<input type="datetime-local" name="startsAt" required></label><label>Fin<input type="datetime-local" name="endsAt"></label><label class="full">Lugar<input name="location"></label><label class="full">Descripción<textarea name="description"></textarea></label></div><button class="primary premium-submit">Agregar a la agenda</button></form>`);document.querySelector('#calendarForm').onsubmit=async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));f.endsAt=f.endsAt||null;await workspaceRequest('/v1/workspace/calendar','POST',f);document.querySelector('.modal')?.remove();await load()}};
+
+window.openDocumentModal=function(){modal('Generar documento HTJ',`<form id="documentForm" class="premium-form"><div class="form-intro"><span>▤</span><div><b>Documento corporativo</b><p>Se asignará un folio y podrá descargarse con el logo oficial.</p></div></div><div class="form-grid-premium"><label>Tipo<select name="documentType"><option value="PURCHASE_TICKET">Ticket de compra</option><option value="RECEIPT">Recibo</option><option value="QUOTE">Cotización</option><option value="INTERNAL">Documento interno</option></select></label><label>Título<input name="title" required></label><label>Destinatario<input name="recipientName"></label><label>Correo<input type="email" name="recipientEmail"></label><label class="full">Concepto<input name="description" required></label><label>Cantidad<input type="number" name="quantity" min="0.01" step="0.01" value="1" required></label><label>Precio unitario<input type="number" name="unitPrice" min="0" step="0.01" required></label><label>IVA<select name="taxRate"><option value="0">0%</option><option value="0.08">8%</option><option value="0.16">16%</option></select></label><label>Adjunto privado<input type="file" id="documentAttachment" accept="image/*,.pdf"></label><label class="full">Notas<textarea name="notes"></textarea></label></div><button class="primary premium-submit">Generar documento</button></form>`,true);document.querySelector('#documentForm').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target),file=document.querySelector('#documentAttachment')?.files?.[0];let attachment=null;if(file){if(file.size>3_000_000)return alert('El adjunto debe pesar menos de 3 MB.');attachment={name:file.name,type:file.type,data:await new Promise(r=>{const reader=new FileReader();reader.onload=()=>r(reader.result);reader.readAsDataURL(file)})}}await workspaceRequest('/v1/workspace/documents','POST',{documentType:f.get('documentType'),title:f.get('title'),recipientName:f.get('recipientName'),recipientEmail:f.get('recipientEmail'),concepts:[{description:f.get('description'),quantity:Number(f.get('quantity')),unitPrice:Number(f.get('unitPrice'))}],taxRate:Number(f.get('taxRate')),notes:f.get('notes'),attachment});document.querySelector('.modal')?.remove();await load()}};
+window.downloadBusinessDocument=async function(id){const d=businessDocuments.find(x=>x.id===id);if(!d)return;await loadJsPDF();const {jsPDF}=window.jspdf,doc=new jsPDF({unit:'mm',format:'letter'});doc.setFillColor(12,15,22);doc.rect(0,0,216,38,'F');try{const img=await new Promise((resolve,reject)=>{const i=new Image();i.onload=()=>resolve(i);i.onerror=reject;i.src='/logo-htj.png'});doc.addImage(img,'PNG',14,5,28,28)}catch{}doc.setTextColor(212,168,78);doc.setFontSize(20);doc.text('HOSPEDAJE TAXI JUÁREZ',50,17);doc.setFontSize(9);doc.text(`${String(d.document_type).replaceAll('_',' ')} · FOLIO ${d.folio}`,50,25);doc.setTextColor(25,30,40);doc.setFontSize(16);doc.text(d.title,14,52);doc.setFontSize(10);doc.text(`Destinatario: ${d.recipient_name||'Documento interno'}`,14,61);let y=76;doc.setFillColor(232,190,98);doc.rect(14,y-7,188,9,'F');doc.text('CANT.',17,y-1);doc.text('DESCRIPCIÓN',40,y-1);doc.text('PRECIO',160,y-1);y+=8;(d.concepts||[]).forEach(c=>{doc.text(String(c.quantity),17,y);doc.text(String(c.description).slice(0,65),40,y);doc.text(money(c.unitPrice),160,y);y+=9});y+=8;doc.text(`Subtotal: ${money(d.subtotal)}`,145,y);doc.text(`Impuestos: ${money(d.tax)}`,145,y+7);doc.setFontSize(14);doc.text(`TOTAL: ${money(d.total)}`,145,y+17);doc.setFontSize(9);doc.text(d.notes||'Documento generado por el sistema administrativo HTJ.',14,250,{maxWidth:185});doc.save(`HTJ-${d.document_type}-${d.folio}.pdf`)};
 
 function modal(title, body, isWide = false) {
   const m = document.createElement('div');
