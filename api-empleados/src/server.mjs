@@ -35,7 +35,7 @@ app.post('/v1/auth/login',safe(async(req,res)=>{
   res.json({employee,accessToken:await employeeToken(rows[0])});
 }));
 
-app.get('/v1/auth/me',role('SUPER_ADMIN','MANAGER','FINANCE','RECEPTION','HOUSEKEEPING'),safe(async(req,res)=>res.json({id:req.employee.id,email:req.employee.email,name:req.employee.name,role:req.employee.role,clockNumber:req.employee.clock_number})));
+app.get('/v1/auth/me',role('SUPER_ADMIN','MANAGER','FINANCE','RECEPTION','HOUSEKEEPING','MAINTENANCE'),safe(async(req,res)=>res.json({id:req.employee.id,email:req.employee.email,name:req.employee.name,role:req.employee.role,clockNumber:req.employee.clock_number})));
 
 const syncUrls=[
   process.env.CLIENT_API_URL,
@@ -137,7 +137,7 @@ app.get('/health',safe(async(_,r)=>{if(process.env.DATABASE_URL)await q('SELECT 
 app.get('/v1/dashboard',role('SUPER_ADMIN','MANAGER','FINANCE'),safe(async(_,res)=>{const [p,e]=await Promise.all([q("SELECT count(*)::int total,count(*) FILTER(WHERE status='AVAILABLE')::int available FROM properties"),q("SELECT COALESCE(sum(amount),0)::float expenses FROM expenses WHERE occurred_on>=date_trunc('month',now())")]);res.json({...p.rows[0],...e.rows[0]})}));
 
 // ── PROPIEDADES ───────────────────────────────────────────────────────────────
-app.get('/v1/properties',role('SUPER_ADMIN','MANAGER','RECEPTION','HOUSEKEEPING'),safe(async(_,res)=>res.json({items:(await q('SELECT * FROM properties ORDER BY updated_at DESC')).rows})));
+app.get('/v1/properties',role('SUPER_ADMIN','MANAGER','RECEPTION','HOUSEKEEPING','MAINTENANCE'),safe(async(_,res)=>res.json({items:(await q('SELECT * FROM properties ORDER BY updated_at DESC')).rows})));
 
 app.post('/v1/properties',role('SUPER_ADMIN','MANAGER'),safe(async(req,res)=>{
   const d=z.object({name:z.string().min(3),type:z.enum(['HOTEL','ROOM','HOUSE','APARTMENT','SUITE']),city:z.string().min(1),address:z.string().optional(),maxGuests:z.number().int().positive(),basePrice:z.number().nonnegative(),details:z.any().optional(),media:z.any().optional()}).parse(req.body);
@@ -312,6 +312,36 @@ app.put('/v1/payroll/:id',role('SUPER_ADMIN','FINANCE'),safe(async(req,res)=>{
 
 app.delete('/v1/payroll/:id',role('SUPER_ADMIN','FINANCE'),safe(async(req,res)=>{await q('DELETE FROM payroll WHERE id=$1',[req.params.id]);res.json({success:true})}));
 
+// ── LIMPIEZA / HOUSEKEEPING ──────────────────────────────────────────────────
+app.get('/v1/cleaning-tasks',role('SUPER_ADMIN','MANAGER','RECEPTION','HOUSEKEEPING'),safe(async(_,res)=>{
+  const {rows}=await q(`SELECT ct.id,ct.property_id AS "propertyId",ct.task_type AS "taskType",ct.priority,ct.status,
+    ct.requested_for AS "requestedFor",ct.notes,ct.checklist,ct.completed_at AS "completedAt",ct.created_at AS "createdAt",
+    p.name AS "propertyName",e.name AS "assignedName"
+    FROM cleaning_tasks ct JOIN properties p ON p.id=ct.property_id
+    LEFT JOIN employees e ON e.id=ct.assigned_to ORDER BY
+    CASE ct.status WHEN 'REQUESTED' THEN 1 WHEN 'IN_PROGRESS' THEN 2 ELSE 3 END,ct.requested_for ASC`);
+  res.json({items:rows});
+}));
+
+app.post('/v1/cleaning-tasks',role('SUPER_ADMIN','MANAGER','RECEPTION','HOUSEKEEPING'),safe(async(req,res)=>{
+  const d=z.object({propertyId:z.string().uuid(),taskType:z.enum(['CHECKOUT','STAYOVER','DEEP','INSPECTION']),priority:z.enum(['LOW','NORMAL','HIGH','URGENT']),requestedFor:z.string(),notes:z.string().max(1000).optional()}).parse(req.body);
+  const {rows}=await q(`INSERT INTO cleaning_tasks(property_id,task_type,priority,requested_for,notes,created_by)
+    VALUES($1,$2,$3,$4,$5,$6) RETURNING *`,[d.propertyId,d.taskType,d.priority,d.requestedFor,d.notes||'',req.employee.id]);
+  await q("UPDATE properties SET status='CLEANING',updated_at=now() WHERE id=$1 AND status='AVAILABLE'",[d.propertyId]);
+  res.status(201).json(rows[0]);
+}));
+
+app.put('/v1/cleaning-tasks/:id',role('SUPER_ADMIN','MANAGER','HOUSEKEEPING'),safe(async(req,res)=>{
+  const d=z.object({status:z.enum(['REQUESTED','IN_PROGRESS','COMPLETED','CANCELLED']),notes:z.string().max(1000).optional(),checklist:z.array(z.string()).optional()}).parse(req.body);
+  const {rows}=await q(`UPDATE cleaning_tasks SET status=$1,notes=COALESCE($2,notes),checklist=COALESCE($3::jsonb,checklist),
+    assigned_to=CASE WHEN $1='IN_PROGRESS' THEN $4 ELSE assigned_to END,
+    completed_at=CASE WHEN $1='COMPLETED' THEN now() ELSE completed_at END,updated_at=now() WHERE id=$5 RETURNING *`,
+    [d.status,d.notes,JSON.stringify(d.checklist||[]),req.employee.id,req.params.id]);
+  if(!rows[0])return res.status(404).json({error:'Solicitud de limpieza no encontrada'});
+  if(d.status==='COMPLETED')await q("UPDATE properties SET status='AVAILABLE',updated_at=now() WHERE id=$1",[rows[0].property_id]);
+  res.json(rows[0]);
+}));
+
 // ── GASTOS ────────────────────────────────────────────────────────────────────
 app.get('/v1/expenses',role('SUPER_ADMIN','FINANCE'),safe(async(_,res)=>res.json({items:(await q('SELECT * FROM expenses ORDER BY occurred_on DESC')).rows})));
 app.post('/v1/expenses',role('SUPER_ADMIN','FINANCE'),safe(async(req,res)=>{const d=z.object({category:z.string(),kind:z.enum(['FIXED','VARIABLE','ASSET']),description:z.string(),amount:z.number().positive(),occurredOn:z.string()}).parse(req.body);res.status(201).json((await q('INSERT INTO expenses(category,kind,description,amount,occurred_on) VALUES($1,$2,$3,$4,$5) RETURNING *',[d.category,d.kind,d.description,d.amount,d.occurredOn])).rows[0])}));
@@ -321,6 +351,20 @@ app.use((e,req,res,next)=>{
   console.error('API Error:',e.message,e.stack);
   res.status(e.name==='ZodError'?400:500).json({error:e.name==='ZodError'?('Datos invalidos: '+e.issues?.map(i=>i.path+': '+i.message).join(', ')):e.message});
 });
+
+// Migración operativa idempotente: garantiza que el flujo de limpieza esté
+// disponible incluso cuando Railway no tenga configurado un pre-deploy command.
+await q(`CREATE TABLE IF NOT EXISTS cleaning_tasks(
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  property_id uuid NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+  task_type text NOT NULL DEFAULT 'CHECKOUT',priority text NOT NULL DEFAULT 'NORMAL',
+  status text NOT NULL DEFAULT 'REQUESTED',requested_for timestamptz NOT NULL DEFAULT now(),
+  assigned_to uuid REFERENCES employees(id) ON DELETE SET NULL,notes text DEFAULT '',
+  checklist jsonb DEFAULT '[]',completed_at timestamptz,
+  created_by uuid REFERENCES employees(id) ON DELETE SET NULL,
+  created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS cleaning_tasks_status_idx ON cleaning_tasks(status,requested_for);`);
 
 app.listen(process.env.PORT||4001,()=>{
   console.log('API empleados lista v3 — sincronización automática activa');

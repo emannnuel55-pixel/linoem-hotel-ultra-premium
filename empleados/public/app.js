@@ -10,6 +10,7 @@ let reservations = [];
 let employees = [];
 let payrolls = [];
 let promotions = [];
+let cleaningTasks = [];
 let currentEmployee = null;
 let dashboard = { total: 0, available: 0, expenses: 0 };
 
@@ -24,6 +25,9 @@ const money = n => new Intl.NumberFormat('es-MX', {
   maximumFractionDigits: 0
 }).format(n);
 const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
+const cleaningTypeLabel = value => ({CHECKOUT:'Salida de huésped',STAYOVER:'Repaso de estancia',DEEP:'Limpieza profunda',INSPECTION:'Inspección de calidad'}[value] || value);
+const cleaningPriorityLabel = value => ({LOW:'Baja',NORMAL:'Normal',HIGH:'Alta',URGENT:'Urgente'}[value] || value);
+const cleaningStatusLabel = value => ({REQUESTED:'Solicitada',IN_PROGRESS:'En proceso',COMPLETED:'Completada',CANCELLED:'Cancelada'}[value] || value);
 
 async function loadLeaflet() {
   if (window.L) return;
@@ -53,7 +57,7 @@ async function load() {
     }
   }
   try {
-    const [resDash, resProp, resExp, resUsers, resRes, resEmp, resPay, resPromos] = await Promise.all([
+    const [resDash, resProp, resExp, resUsers, resRes, resEmp, resPay, resPromos, resCleaning] = await Promise.all([
       fetch(API + '/v1/dashboard', { headers: headers() }).then(r => r.json()).catch(() => null),
       fetch(API + '/v1/properties', { headers: headers() }).then(r => r.json()).catch(() => null),
       fetch(API + '/v1/expenses', { headers: headers() }).then(r => r.json()).catch(() => null),
@@ -61,7 +65,8 @@ async function load() {
       fetch(API + '/v1/reservations', { headers: headers() }).then(r => r.json()).catch(() => null),
       fetch(API + '/v1/employees', { headers: headers() }).then(r => r.json()).catch(() => null),
       fetch(API + '/v1/payroll', { headers: headers() }).then(r => r.json()).catch(() => null),
-      fetch(API + '/v1/promotions', { headers: headers() }).then(r => r.json()).catch(() => null)
+      fetch(API + '/v1/promotions', { headers: headers() }).then(r => r.json()).catch(() => null),
+      fetch(API + '/v1/cleaning-tasks', { headers: headers() }).then(r => r.json()).catch(() => null)
     ]);
 
     if (resDash) {
@@ -78,6 +83,7 @@ async function load() {
     if (resEmp && resEmp.items) employees = resEmp.items;
     if (resPay && resPay.items) payrolls = resPay.items;
     if (resPromos && resPromos.items) promotions = resPromos.items;
+    if (resCleaning && resCleaning.items) cleaningTasks = resCleaning.items;
   } catch (err) {
     console.error('Error loading data:', err);
   }
@@ -85,26 +91,54 @@ async function load() {
   render();
 }
 
+const teamQuotes = [
+  ['La excelencia no es un acto aislado: es la forma en que cuidamos cada detalle.', 'Equipo HTJ'],
+  ['Cada huésped recuerda cómo lo hicimos sentir. Hoy tenemos una nueva oportunidad para sorprender.', 'Hospitalidad HTJ'],
+  ['Un gran equipo convierte tareas sencillas en experiencias extraordinarias.', 'Juntos somos HTJ'],
+  ['La calidad empieza mucho antes de que llegue el huésped: empieza con tu compromiso.', 'Cultura de servicio'],
+  ['Tu trabajo de hoy puede convertirse en el mejor recuerdo de viaje de alguien.', 'Propósito HTJ'],
+  ['La verdadera hospitalidad consiste en hacer sentir a cada persona que llegó al lugar correcto.', 'Servicio con corazón'],
+  ['Cuando cuidamos los detalles, los detalles cuidan nuestra reputación.', 'Excelencia diaria'],
+  ['Ningún esfuerzo es pequeño cuando forma parte de una experiencia excepcional.', 'Equipo HTJ'],
+  ['La confianza se construye habitación por habitación, atención por atención.', 'Compromiso HTJ'],
+  ['Hoy no venimos solamente a trabajar: venimos a crear tranquilidad para nuestros huéspedes.', 'Misión HTJ'],
+  ['El talento gana momentos; la colaboración construye resultados duraderos.', 'Juntos avanzamos'],
+  ['Hazlo con orgullo, porque tu firma invisible está en cada experiencia bien lograda.', 'Orgullo HTJ']
+];
+
+function dailyTeamQuote() {
+  const now = new Date();
+  const dayNumber = Math.floor(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) / 86400000);
+  return teamQuotes[dayNumber % teamQuotes.length];
+}
+
 function renderEmployeeLogin(message = '') {
+  const [dailyQuote, quoteAuthor] = dailyTeamQuote();
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas noches';
   document.querySelector('#app').innerHTML = `
     <main class="employee-login-page">
       <section class="employee-login-visual">
-        <img src="/logo-htj.png" alt="HTJ Hotel">
-        <span>OPERACIONES HTJ</span>
-        <h1>Hospitalidad excepcional, gestión inteligente.</h1>
-        <p>Acceso privado para el equipo de Hospedaje Taxi Juárez.</p>
+        <div class="login-brand"><img src="/logo-htj.png" alt="HTJ Hotel"><div><b>HTJ</b><span>HOSPEDAJE TAXI JUÁREZ</span></div></div>
+        <div class="login-hero-copy">
+          <span class="login-eyebrow">OPERACIONES · SERVICIO · EXCELENCIA</span>
+          <h1>El corazón de una gran estancia comienza contigo.</h1>
+          <p>Un espacio creado para que nuestro equipo coordine, cuide y transforme cada llegada en una experiencia memorable.</p>
+          <blockquote><span>“</span><p>${escapeHtml(dailyQuote)}</p><footer>${escapeHtml(quoteAuthor)} · Inspiración del día</footer></blockquote>
+        </div>
+        <div class="login-visual-footer"><span>● Sistema operativo activo</span><span>${new Date().toLocaleDateString('es-MX',{weekday:'long',day:'numeric',month:'long'})}</span></div>
       </section>
       <section class="employee-login-panel">
         <form id="employeeLoginForm" class="employee-login-card">
-          <div class="employee-login-mark">HTJ</div>
-          <span class="employee-login-kicker">PORTAL SEGURO</span>
-          <h2>Bienvenido de nuevo</h2>
-          <p>Ingresa tus credenciales de empleado.</p>
+          <div class="employee-login-mark"><img src="/logo-htj.png" alt="HTJ"></div>
+          <span class="employee-login-kicker">PORTAL INTERNO SEGURO</span>
+          <h2>${greeting}, equipo</h2>
+          <p>Inicia sesión para continuar haciendo extraordinario lo cotidiano.</p>
           ${message ? `<div class="employee-login-message">${escapeHtml(message)}</div>` : ''}
-          <label>Correo electrónico<input name="email" type="email" required autocomplete="username" placeholder="empleado@hotel.com"></label>
-          <label>Contraseña<input name="password" type="password" minlength="8" required autocomplete="current-password" placeholder="Tu contraseña"></label>
-          <button type="submit">Iniciar sesión</button>
-          <small>Si no tienes acceso, solicítalo al administrador del hotel.</small>
+          <label>Correo electrónico<div class="login-input-wrap"><span>✉</span><input name="email" type="email" required autocomplete="username" placeholder="empleado@hotel.com"></div></label>
+          <label>Contraseña<div class="login-input-wrap"><span>⌑</span><input name="password" type="password" minlength="8" required autocomplete="current-password" placeholder="Tu contraseña"></div></label>
+          <button type="submit"><span>Entrar al portal</span><b>→</b></button>
+          <div class="login-security"><span>✓</span><small>Acceso cifrado y exclusivo para personal autorizado.</small></div>
         </form>
       </section>
     </main>`;
@@ -357,16 +391,41 @@ function render() {
       </section>
     `;
   } else if (currentTab === 'limpieza') {
+    const pendingCleaning = cleaningTasks.filter(task => !['COMPLETED','CANCELLED'].includes(task.status));
     mainContent = `
       <header class="head">
         <div>
           <h1>Limpieza / Housekeeping</h1>
           <p>Monitorea y actualiza el estado de aseo de cada habitación y propiedad</p>
         </div>
+        <button class="add add-with-label" id="requestCleaningBtn">+ Solicitar limpieza</button>
       </header>
+      <section class="workflow-summary">
+        <article><span class="workflow-icon">✦</span><div><b>${pendingCleaning.length}</b><small>Solicitudes pendientes</small></div></article>
+        <article><span class="workflow-icon">◷</span><div><b>${cleaningTasks.filter(t => t.status === 'IN_PROGRESS').length}</b><small>En proceso</small></div></article>
+        <article><span class="workflow-icon">✓</span><div><b>${cleaningTasks.filter(t => t.status === 'COMPLETED').length}</b><small>Limpiezas registradas</small></div></article>
+      </section>
+      <section class="box module-workflow">
+        <div class="section-heading"><div><span class="section-kicker">FLUJO DE HOUSEKEEPING</span><h3>Solicitudes y registro de limpieza</h3><p>Crea una solicitud, inicia el trabajo y registra la lista de verificación al terminar.</p></div></div>
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead><tr><th>Unidad</th><th>Servicio</th><th>Prioridad</th><th>Programada</th><th>Estado</th><th>Acciones</th></tr></thead>
+            <tbody>${cleaningTasks.length ? cleaningTasks.map(task => `
+              <tr><td><strong>${escapeHtml(task.propertyName)}</strong><small class="table-subtext">${escapeHtml(task.assignedName || 'Sin asignar')}</small></td>
+              <td>${cleaningTypeLabel(task.taskType)}</td><td><span class="priority priority-${task.priority.toLowerCase()}">${cleaningPriorityLabel(task.priority)}</span></td>
+              <td>${new Date(task.requestedFor).toLocaleString('es-MX',{dateStyle:'short',timeStyle:'short'})}</td>
+              <td><span class="task-status task-${task.status.toLowerCase()}">${cleaningStatusLabel(task.status)}</span></td>
+              <td><div class="actions-group">
+                ${task.status === 'REQUESTED' ? `<button class="btn-action btn-primary" onclick="updateCleaningTask('${task.id}','IN_PROGRESS')">Iniciar</button>` : ''}
+                ${task.status === 'IN_PROGRESS' ? `<button class="btn-action btn-success" onclick="openCleaningRegisterModal('${task.id}')">Registrar limpieza</button>` : ''}
+                ${task.status === 'COMPLETED' ? `<button class="btn-action btn-soft" onclick="openCleaningDetail('${task.id}')">Ver registro</button>` : ''}
+              </div></td></tr>`).join('') : '<tr><td colspan="6"><div class="empty-state"><span>✓</span><b>No hay solicitudes pendientes</b><small>Usa “Solicitar limpieza” para programar el primer servicio.</small></div></td></tr>'}</tbody>
+          </table>
+        </div>
+      </section>
       <section class="properties-list">
         <div class="box">
-          <h3>Estado de Limpieza de las Unidades</h3>
+          <div class="section-heading"><div><span class="section-kicker">CONTROL RÁPIDO</span><h3>Estado operativo de las unidades</h3></div></div>
           <div class="table-responsive">
             <table class="data-table">
               <thead>
@@ -388,7 +447,7 @@ function render() {
                       </span>
                     </td>
                     <td>
-                      <select onchange="updatePropertyStatus('${p.id}', this.value)" style="padding:6px 12px;border:1px solid rgba(255,255,255,0.1);background:var(--panel2);color:white;border-radius:8px;">
+                      <select class="status-select" onchange="updatePropertyStatus('${p.id}', this.value)">
                         <option value="AVAILABLE" ${p.status === 'AVAILABLE' ? 'selected' : ''}>Disponible / Limpio</option>
                         <option value="CLEANING" ${p.status === 'CLEANING' ? 'selected' : ''}>Limpieza en Proceso</option>
                         <option value="MAINTENANCE" ${p.status === 'MAINTENANCE' ? 'selected' : ''}>Mantenimiento</option>
@@ -410,6 +469,7 @@ function render() {
           <h1>Mantenimiento</h1>
           <p>Reporta y gestiona reparaciones y desperfectos en tus propiedades</p>
         </div>
+        <button class="add add-with-label" id="addMaintenanceBtn">+ Nuevo reporte</button>
       </header>
       <section class="properties-list">
         <div class="box">
@@ -724,6 +784,12 @@ function render() {
 
   const addPayrollBtn = document.querySelector('#addPayrollBtn');
   if (addPayrollBtn) addPayrollBtn.onclick = openPayrollModal;
+
+  const requestCleaningBtn = document.querySelector('#requestCleaningBtn');
+  if (requestCleaningBtn) requestCleaningBtn.onclick = openCleaningRequestModal;
+
+  const addMaintenanceBtn = document.querySelector('#addMaintenanceBtn');
+  if (addMaintenanceBtn) addMaintenanceBtn.onclick = openMaintenanceSelector;
 
   const themeToggleBtn = document.querySelector('#themeToggleBtn');
   if (themeToggleBtn) {
@@ -1265,21 +1331,89 @@ window.updatePropertyStatus = async function(id, newStatus) {
   }
 };
 
+window.openCleaningRequestModal = function() {
+  if (!properties.length) return alert('Primero registra una propiedad o habitación.');
+  const localDate = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0,16);
+  modal('Solicitar servicio de limpieza', `
+    <form id="cleaningRequestForm" class="premium-form">
+      <div class="form-intro"><span>✦</span><div><b>Nueva orden de housekeeping</b><p>Programa el servicio con toda la información que necesita el equipo.</p></div></div>
+      <div class="form-grid-premium">
+        <label class="full">Propiedad o habitación<select name="propertyId" required>${properties.map(p=>`<option value="${p.id}">${escapeHtml(p.name)} · ${escapeHtml(p.city)}</option>`).join('')}</select></label>
+        <label>Tipo de servicio<select name="taskType" required><option value="CHECKOUT">Salida de huésped</option><option value="STAYOVER">Repaso de estancia</option><option value="DEEP">Limpieza profunda</option><option value="INSPECTION">Inspección de calidad</option></select></label>
+        <label>Prioridad<select name="priority" required><option value="NORMAL">Normal</option><option value="HIGH">Alta</option><option value="URGENT">Urgente</option><option value="LOW">Baja</option></select></label>
+        <label class="full">Fecha y hora solicitada<input name="requestedFor" type="datetime-local" required value="${localDate}"></label>
+        <label class="full">Indicaciones para el equipo<textarea name="notes" rows="4" maxlength="1000" placeholder="Ej. Revisar blancos, preparar cama adicional y reportar cualquier desperfecto..."></textarea></label>
+      </div>
+      <button class="primary premium-submit">Crear solicitud de limpieza</button>
+    </form>`);
+  document.querySelector('#cleaningRequestForm').onsubmit = async event => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const body = {propertyId:form.get('propertyId'),taskType:form.get('taskType'),priority:form.get('priority'),requestedFor:new Date(form.get('requestedFor')).toISOString(),notes:form.get('notes')||''};
+    try {
+      const response = await fetch(API + '/v1/cleaning-tasks',{method:'POST',headers:headers(),body:JSON.stringify(body)});
+      const data = await response.json();
+      if(!response.ok)throw new Error(data.error||'No se pudo crear la solicitud');
+      document.querySelector('.modal')?.remove(); await load();
+    } catch(error){ alert(error.message); }
+  };
+};
+
+window.updateCleaningTask = async function(id,status,extra={}) {
+  try {
+    const response=await fetch(API+`/v1/cleaning-tasks/${id}`,{method:'PUT',headers:headers(),body:JSON.stringify({status,...extra})});
+    const data=await response.json();
+    if(!response.ok)throw new Error(data.error||'No se pudo actualizar la limpieza');
+    await load();
+  } catch(error){alert(error.message);}
+};
+
+window.openCleaningRegisterModal = function(id) {
+  const task=cleaningTasks.find(item=>item.id===id);
+  if(!task)return;
+  const checks=['Cama y blancos renovados','Baño desinfectado','Pisos y superficies limpios','Amenidades repuestas','Basura retirada','Ventanas y accesos revisados','Fotografía o inspección final'];
+  modal('Registrar limpieza terminada', `
+    <form id="cleaningRegisterForm" class="premium-form">
+      <div class="form-intro success"><span>✓</span><div><b>${escapeHtml(task.propertyName)}</b><p>Confirma cada punto antes de liberar la unidad.</p></div></div>
+      <div class="checklist-premium">${checks.map((item,index)=>`<label><input type="checkbox" name="check_${index}" value="${escapeHtml(item)}" required><span>✓</span>${escapeHtml(item)}</label>`).join('')}</div>
+      <label class="field-block">Notas del registro<textarea name="notes" rows="4" maxlength="1000" placeholder="Observaciones, objetos encontrados, insumos faltantes o desperfectos...">${escapeHtml(task.notes||'')}</textarea></label>
+      <button class="primary premium-submit">Finalizar y liberar unidad</button>
+    </form>`);
+  document.querySelector('#cleaningRegisterForm').onsubmit=async event=>{
+    event.preventDefault(); const form=new FormData(event.currentTarget);
+    const checklist=checks.filter((_,index)=>form.get(`check_${index}`));
+    if(checklist.length!==checks.length)return alert('Confirma todos los puntos de la lista de limpieza.');
+    document.querySelector('.modal')?.remove();
+    await updateCleaningTask(id,'COMPLETED',{notes:form.get('notes')||'',checklist});
+  };
+};
+
+window.openCleaningDetail = function(id) {
+  const task=cleaningTasks.find(item=>item.id===id); if(!task)return;
+  modal('Registro de limpieza',`<div class="record-detail"><div class="record-hero"><span>✓</span><div><b>${escapeHtml(task.propertyName)}</b><small>Completada ${task.completedAt?new Date(task.completedAt).toLocaleString('es-MX'):''}</small></div></div><h4>Lista verificada</h4><ul>${(task.checklist||[]).map(item=>`<li>✓ ${escapeHtml(item)}</li>`).join('')||'<li>Sin lista registrada</li>'}</ul><h4>Observaciones</h4><p>${escapeHtml(task.notes||'Sin observaciones.')}</p></div>`);
+};
+
+window.openMaintenanceSelector = function() {
+  if(!properties.length)return alert('Primero registra una propiedad o habitación.');
+  modal('Nuevo reporte de mantenimiento',`<form id="maintenanceSelectorForm" class="premium-form"><div class="form-intro"><span>⚒</span><div><b>Selecciona la unidad</b><p>Después podrás registrar el incidente y cambiar su estado operativo.</p></div></div><label class="field-block">Propiedad o habitación<select name="propertyId">${properties.map(p=>`<option value="${p.id}">${escapeHtml(p.name)} · ${escapeHtml(p.city)}</option>`).join('')}</select></label><button class="primary premium-submit">Continuar con el reporte</button></form>`);
+  document.querySelector('#maintenanceSelectorForm').onsubmit=event=>{event.preventDefault();const id=new FormData(event.currentTarget).get('propertyId');const property=properties.find(p=>p.id===id);document.querySelector('.modal')?.remove();openMaintenanceReportModal(id,property?.details?.incident||'');};
+};
+
 window.openMaintenanceReportModal = function(id, currentIncident) {
   modal('Reportar / Editar Incidente de Mantenimiento', `
-    <form id="maintenanceForm">
-      <div style="margin-bottom:20px;">
-        <label style="display:block;margin-bottom:8px;font-size:0.85rem;color:var(--muted)">Describa el desperfecto o trabajo requerido</label>
-        <input name="incident" required value="${currentIncident}" placeholder="Ej: Fuga de agua en baño o aire acondicionado fallando" style="width:100%;">
-      </div>
-      <div style="margin-bottom:20px;">
-        <label style="display:block;margin-bottom:8px;font-size:0.85rem;color:var(--muted)">¿Poner unidad fuera de servicio en Mantenimiento?</label>
-        <select name="status" style="width:100%;padding:14px;border:1px solid var(--panel2);background:var(--panel);color:white;border-radius:12px;">
+    <form id="maintenanceForm" class="premium-form">
+      <div class="form-intro"><span>⚒</span><div><b>Orden de trabajo</b><p>Describe el problema con claridad para acelerar la solución.</p></div></div>
+      <div class="form-grid-premium">
+        <label>Categoría<select name="category"><option>Plomería</option><option>Electricidad</option><option>Climatización</option><option>Mobiliario</option><option>Seguridad</option><option>Otro</option></select></label>
+        <label>Prioridad<select name="maintenancePriority"><option value="NORMAL">Normal</option><option value="HIGH">Alta</option><option value="URGENT">Urgente</option></select></label>
+        <label class="full">Desperfecto o trabajo requerido<textarea name="incident" rows="4" required placeholder="Ej: Fuga de agua en baño o aire acondicionado fallando">${escapeHtml(currentIncident)}</textarea></label>
+        <label class="full">Estado operativo<select name="status">
           <option value="MAINTENANCE">Sí, colocar en Mantenimiento</option>
           <option value="AVAILABLE">No, mantener Disponible</option>
         </select>
+        </label>
       </div>
-      <button class="primary" style="width:100%;padding:14px;background:var(--gold);color:#171106;font-weight:bold;">Guardar Reporte</button>
+      <button class="primary premium-submit">Guardar reporte de mantenimiento</button>
     </form>
   `);
 
@@ -1299,7 +1433,7 @@ window.openMaintenanceReportModal = function(id, currentIncident) {
       basePrice: parseFloat(prop.base_price),
       status: newStatus,
       media: prop.media || [],
-      details: { ...prop.details, incident: incidentText }
+      details: { ...prop.details, incident: incidentText, maintenance: { category: fd.get('category'), priority: fd.get('maintenancePriority'), reportedAt: new Date().toISOString(), reportedBy: currentEmployee?.name || '' } }
     };
 
     try {

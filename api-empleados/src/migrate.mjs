@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS properties(id uuid PRIMARY KEY DEFAULT gen_random_uui
 CREATE TABLE IF NOT EXISTS promotions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),title text NOT NULL,subtitle text DEFAULT '',badge text DEFAULT '',image_url text NOT NULL,mobile_image_url text DEFAULT '',cta_label text DEFAULT 'Ver alojamientos',cta_url text DEFAULT '#alojamientos',active boolean DEFAULT true,starts_at timestamptz,ends_at timestamptz,sort_order int DEFAULT 0,published boolean DEFAULT true,version bigint DEFAULT 1,sync_status text DEFAULT 'PENDING',sync_error text,synced_at timestamptz,created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now());
 CREATE TABLE IF NOT EXISTS sync_outbox(id bigserial PRIMARY KEY,kind text NOT NULL,resource_id uuid NOT NULL,payload jsonb NOT NULL,attempts int DEFAULT 0,next_attempt_at timestamptz DEFAULT now(),last_error text,created_at timestamptz DEFAULT now(),UNIQUE(kind,resource_id));
 CREATE TABLE IF NOT EXISTS expenses(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),category text NOT NULL,kind text NOT NULL,description text NOT NULL,amount numeric(12,2) NOT NULL,occurred_on date NOT NULL,created_by uuid REFERENCES employees(id),created_at timestamptz DEFAULT now());
+CREATE TABLE IF NOT EXISTS cleaning_tasks(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),property_id uuid NOT NULL REFERENCES properties(id) ON DELETE CASCADE,task_type text NOT NULL DEFAULT 'CHECKOUT',priority text NOT NULL DEFAULT 'NORMAL',status text NOT NULL DEFAULT 'REQUESTED',requested_for timestamptz NOT NULL DEFAULT now(),assigned_to uuid REFERENCES employees(id) ON DELETE SET NULL,notes text DEFAULT '',checklist jsonb DEFAULT '[]',completed_at timestamptz,created_by uuid REFERENCES employees(id) ON DELETE SET NULL,created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now());
 CREATE TABLE IF NOT EXISTS payroll(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),employee_id uuid REFERENCES employees(id),period_start date NOT NULL,period_end date NOT NULL,gross numeric(12,2) NOT NULL,deductions jsonb DEFAULT '{}',net numeric(12,2) NOT NULL,status text DEFAULT 'DRAFT',created_at timestamptz DEFAULT now());
 CREATE TABLE IF NOT EXISTS audit_log(id bigserial PRIMARY KEY,actor_id uuid,action text NOT NULL,resource text NOT NULL,resource_id text,metadata jsonb DEFAULT '{}',created_at timestamptz DEFAULT now());`);
 
@@ -64,6 +65,7 @@ await q(`
   CREATE INDEX IF NOT EXISTS properties_sync_pending_idx ON properties(published, sync_status, updated_at);
   CREATE INDEX IF NOT EXISTS promotions_sync_pending_idx ON promotions(published, sync_status, updated_at);
   CREATE INDEX IF NOT EXISTS sync_outbox_retry_idx ON sync_outbox(next_attempt_at, attempts);
+  CREATE INDEX IF NOT EXISTS cleaning_tasks_status_idx ON cleaning_tasks(status, requested_for);
 `);
 
 // ── SEED SEGURO: Administrador inicial (solo si Railway proporciona variables)
